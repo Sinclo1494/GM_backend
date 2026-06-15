@@ -1,0 +1,56 @@
+"""
+URL configuration for config project.
+
+The `urlpatterns` list routes URLs to views. For more information please see:
+    https://docs.djangoproject.com/en/6.0/topics/http/urls/
+Examples:
+Function views
+    1. Add an import:  from my_app import views
+    2. Add a URL to urlpatterns:  path('', views.home, name='home')
+Class-based views
+    1. Add an import:  from other_app.views import Home
+    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
+Including another URLconf
+    1. Import the include() function: from django.urls import include, path
+    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+"""
+from django.contrib import admin
+from django.urls import path, include
+
+from rest_framework import routers
+from api import views
+
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
+
+
+router = routers.DefaultRouter()
+router.register(r'grand-materiel', views.GrandMaterielViewSet, 'grand-materiel')
+router.register(r'marque-materiel', views.MarqueMaterielViewSet, 'marque-materiel')
+router.register(r'type-marque', views.TypeMarqueViewSet, 'type-marque')
+router.register(r'sous-famille-materiel', views.SousFamilleMaterielViewSet, 'sous-famille-materiel')
+router.register(r'famille-materiel', views.FamilleMaterielViewSet, 'famille-materiel')
+router.register(r'categorie-gm', views.CategorieGMViewSet, 'categorie-gm')
+router.register(r'type-affectation', views.TypeAffectationViewSet, 'type-affectation')
+router.register(r'type-situation', views.TypeSituationViewSet, 'type-situation')
+router.register(r'type-etat-materiel', views.TypeEtatMaterielViewSet, 'type-etat-materiel')
+router.register(r'situation-materiel', views.SituationMaterielViewSet, 'situation-materiel')
+router.register(r'entreprise', views.EntrepriseViewSet, 'entreprise')
+router.register(r'filiale', views.FilialeViewSet, 'filiale')
+router.register(r'affectation-materiel', views.AffectationMaterielViewSet, 'affectation-materiel')
+router.register(r'division', views.DivisionViewSet, 'division')
+router.register(r'famille-structures', views.FamilleStructuresViewSet, 'famille-structures')
+router.register(r'pointage', views.PointageViewSet, 'pointage')
+router.register(r'regularisation-gm', views.RegularisationGMViewSet, 'regularisation-gm')
+router.register(r'regularisation-mois-gm2', views.RegularisationMoisGM2ViewSet, 'regularisation-mois-gm2')
+router.register(r'site', views.SiteViewSet, 'site')
+
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('api/', include(router.urls)),
+    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+]
