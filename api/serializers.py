@@ -122,3 +122,5 @@ class SiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Site
         fields = "__all__"
+
+

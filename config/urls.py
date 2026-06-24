@@ -19,6 +19,7 @@ from django.urls import path, include
 
 from rest_framework import routers
 from api import views
+from api.views import pointage_upload_view,situation_upload_view
 
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -48,9 +49,14 @@ router.register(r'regularisation-mois-gm2', views.RegularisationMoisGM2ViewSet, 
 router.register(r'site', views.SiteViewSet, 'site')
 
 
+
+
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
+    path('api/pointage-upload/', pointage_upload_view),
+    path('api/situation-upload/', situation_upload_view),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]

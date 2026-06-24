@@ -1,6 +1,14 @@
 from django.shortcuts import render
 from rest_framework import viewsets
 
+import tablib
+from django.http import JsonResponse
+from api.services import PointageImportService,SituationImportService
+
+
+
+
+
 from .models import Grand_Materiel
 from .models import Marque_Materiel
 from .models import Type_Marque
@@ -20,6 +28,7 @@ from .models import Pointage
 from .models import Regularisation_GM
 from .models import Regularisation_Mois_GM2
 from .models import Site
+
 
 
 from .serializers import GrandMaterielSerializer
@@ -123,4 +132,33 @@ class SiteViewSet(viewsets.ModelViewSet):
     queryset = Site.objects.all()
     serializer_class = SiteSerializer
 
+def pointage_upload_view(request):
+
+    if request.method == "POST":
+
+        file_obj = request.FILES["file"]
+        service = PointageImportService(file_obj)
+        service.import_data()
+ 
+        return JsonResponse({
+            "success": True,
+            "message": "Import completed successfully"
+        })
+
+    return render(request, "pointage_upload.html")
+
+def situation_upload_view(request):
+
+    if request.method == "POST":
+
+        file_obj = request.FILES["file"]
+        service = SituationImportService(file_obj)
+        service.import_data()
+ 
+        return JsonResponse({
+            "success": True,
+            "message": "Import completed successfully"
+        })
+
+    return render(request, "situation_upload.html")
 
