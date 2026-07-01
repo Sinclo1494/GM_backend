@@ -1,9 +1,16 @@
 from django.shortcuts import render
 from rest_framework import viewsets
+from rest_framework.views import APIView
+from rest_framework.response import Response
 
 import tablib
 from django.http import JsonResponse
-from api.services import PointageImportService,SituationImportService
+from api.services import (
+    PointageImportService,
+    SituationImportService,
+    AnalyseQuantitative,
+    AnalyseQuantitativeResume)
+
 
 
 
@@ -161,4 +168,32 @@ def situation_upload_view(request):
         })
 
     return render(request, "situation_upload.html")
+
+class TP_AQ_API_View(APIView):
+    def get(self, request):
+        code_filiale = request.query_params.get("code_filiale")
+        date_debut = request.query_params.get("date_debut")
+        date_fin = request.query_params.get("date_fin")
+
+        data = AnalyseQuantitative.get_situations(
+            code_filiale=code_filiale,
+            date_debut=date_debut,
+            date_fin=date_fin,
+        )
+
+        return Response(data)
+
+class TP_AQ_resume_API_View(APIView):
+    def get(self, request):
+        code_filiale = request.query_params.get("code_filiale")
+        date_debut = request.query_params.get("date_debut")
+        date_fin = request.query_params.get("date_fin")
+
+        data = AnalyseQuantitativeResume.get_situations_resume(
+            code_filiale=code_filiale,
+            date_debut=date_debut,
+            date_fin=date_fin,
+        )
+
+        return Response(data)
 

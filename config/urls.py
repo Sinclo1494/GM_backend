@@ -19,7 +19,11 @@ from django.urls import path, include
 
 from rest_framework import routers
 from api import views
-from api.views import pointage_upload_view,situation_upload_view
+from api.views import (
+    pointage_upload_view,
+    situation_upload_view,
+    TP_AQ_API_View,
+    TP_AQ_resume_API_View)
 
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -57,6 +61,8 @@ urlpatterns = [
     path('api/', include(router.urls)),
     path('api/pointage-upload/', pointage_upload_view),
     path('api/situation-upload/', situation_upload_view),
+    path('api/aqtp/', TP_AQ_API_View.as_view()),
+    path('api/aqtpr/', TP_AQ_resume_API_View.as_view()),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]

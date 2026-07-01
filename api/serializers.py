@@ -73,6 +73,30 @@ class TypeEtatMaterielSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 class SituationMaterielSerializer(serializers.ModelSerializer):
+    code_affectation = serializers.CharField(
+        source = "affectation_id.code_affectation",
+        read_only = True
+    )
+    code_type_affectation = serializers.CharField(
+        source = "type_situation_id.code_type_affectation",
+        read_only= True
+    )
+    code_type_situation = serializers.CharField(
+        source = "type_situation_id.code_type_situation",
+        read_only= True
+    )
+    etat_materiel = serializers.CharField(
+        source = "code_type_etat_materiel.code_type_etat_materiel",
+        read_only= True
+    )
+    filiale = serializers.CharField(
+        source = "affectation_id.code_filiale_mere",
+        read_only= True
+    )
+    site = serializers.CharField(
+        source = "affectation_id.code_site",
+        read_only= True
+    )
     class Meta:
         model = Situation_Materiel
         fields = "__all__"
