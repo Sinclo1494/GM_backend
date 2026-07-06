@@ -9,7 +9,9 @@ from api.services import (
     PointageImportService,
     SituationImportService,
     AnalyseQuantitative,
-    AnalyseQuantitativeResume)
+    AnalyseQuantitativeResume,
+    AnalyseExploitation,
+    AnalyseExploitationResume,)
 
 
 
@@ -197,3 +199,30 @@ class TP_AQ_resume_API_View(APIView):
 
         return Response(data)
 
+class TP_AE_API_View(APIView):
+    def get(self, request):
+        code_filiale = request.query_params.get("code_filiale")
+        date_debut = request.query_params.get("date_debut")
+        date_fin = request.query_params.get("date_fin")
+
+        data = AnalyseExploitation.get_pointages(
+            code_filiale=code_filiale,
+            date_debut=date_debut,
+            date_fin=date_fin,
+        )
+
+        return Response(data)
+
+class TP_AE_resume_API_View(APIView):
+    def get(self, request):
+        code_filiale = request.query_params.get("code_filiale")
+        date_debut = request.query_params.get("date_debut")
+        date_fin = request.query_params.get("date_fin")
+
+        data = AnalyseExploitationResume.get_pointages_resume(
+            code_filiale=code_filiale,
+            date_debut=date_debut,
+            date_fin=date_fin,
+        )
+
+        return Response(data)

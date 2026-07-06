@@ -146,7 +146,6 @@ class AnalyseQuantitative:
         result = {}
 
         for s in situations:
-            print (s)
             key = (
                 s["code_sous_famille"],
                 s["libelle_sous_famille"],
@@ -222,7 +221,6 @@ class AnalyseQuantitative:
             final_result.append(row)
 
         final_result.sort(key=lambda x: x["code_sous_famille"])
-        print(final_result[0])
         return final_result
 
 class AnalyseQuantitativeResume:

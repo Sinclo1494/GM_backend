@@ -2,3 +2,5 @@ from .pointage_import_service import PointageImportService
 from .situation_import_service import SituationImportService
 from .analyse_qunatitaive import AnalyseQuantitative
 from .analyse_qunatitaive import AnalyseQuantitativeResume
+from .analyse_exploitation import AnalyseExploitation
+from .analyse_exploitation import AnalyseExploitationResume

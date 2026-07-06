@@ -20,7 +20,6 @@ from .models import Regularisation_Mois_GM2
 from .models import Site
 
 
-
 class GrandMaterielSerializer(serializers.ModelSerializer):
     class Meta:
         model = Grand_Materiel
@@ -62,79 +61,83 @@ class TypeAffectationSerializer(serializers.ModelSerializer):
         model = Type_Affectation
         fields = "__all__"
 
+
 class TypeSituationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Type_Situation
         fields = "__all__"
+
 
 class TypeEtatMaterielSerializer(serializers.ModelSerializer):
     class Meta:
         model = Type_Etat_Materiel
         fields = "__all__"
 
+
 class SituationMaterielSerializer(serializers.ModelSerializer):
     code_affectation = serializers.CharField(
-        source = "affectation_id.code_affectation",
-        read_only = True
+        source="affectation_id.code_affectation", read_only=True
     )
     code_type_affectation = serializers.CharField(
-        source = "type_situation_id.code_type_affectation",
-        read_only= True
+        source="type_situation_id.code_type_affectation", read_only=True
     )
     code_type_situation = serializers.CharField(
-        source = "type_situation_id.code_type_situation",
-        read_only= True
+        source="type_situation_id.code_type_situation", read_only=True
     )
     etat_materiel = serializers.CharField(
-        source = "code_type_etat_materiel.code_type_etat_materiel",
-        read_only= True
+        source="code_type_etat_materiel.code_type_etat_materiel", read_only=True
     )
     filiale = serializers.CharField(
-        source = "affectation_id.code_filiale_mere",
-        read_only= True
+        source="affectation_id.code_filiale_mere", read_only=True
     )
-    site = serializers.CharField(
-        source = "affectation_id.code_site",
-        read_only= True
-    )
+    site = serializers.CharField(source="affectation_id.code_site", read_only=True)
+
     class Meta:
         model = Situation_Materiel
         fields = "__all__"
+
 
 class EntrepriseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Entreprise
         fields = "__all__"
 
+
 class FilialeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Filiale
         fields = "__all__"
+
 
 class AffectationMaterielSerializer(serializers.ModelSerializer):
     class Meta:
         model = Affectation_Materiel
         fields = "__all__"
 
+
 class DivisionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Division
         fields = "__all__"
+
 
 class FamilleStructuresSerializer(serializers.ModelSerializer):
     class Meta:
         model = Famille_Structures
         fields = "__all__"
 
+
 class PointageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pointage
         fields = "__all__"
 
+
 class RegularisationGMSerializer(serializers.ModelSerializer):
     class Meta:
         model = Regularisation_GM
         fields = "__all__"
+
 
 class RegularisationMoisGM2Serializer(serializers.ModelSerializer):
     class Meta:
@@ -146,5 +149,3 @@ class SiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Site
         fields = "__all__"
-
-
