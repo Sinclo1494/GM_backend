@@ -4,3 +4,5 @@ from .analyse_qunatitaive import AnalyseQuantitative
 from .analyse_qunatitaive import AnalyseQuantitativeResume
 from .analyse_exploitation import AnalyseExploitation
 from .analyse_exploitation import AnalyseExploitationResume
+from .csv_import import CsvValidator 
+from .csv_import import CsvImporter

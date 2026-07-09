@@ -237,7 +237,8 @@ class AnalyseQuantitativeResume:
             date_fin,
         )
 
-        nbr_totale = 0
+        nbr_total = 0
+        devider = 0
         age_total = 0
 
         exp_service = 0
@@ -252,8 +253,10 @@ class AnalyseQuantitativeResume:
         rep_autre = 0
 
         for row in rows:
-            nbr_totale += row["nbr"]
+            nbr_total += row["nbr"]
             age_total += row["age_total"]
+            if age_total > 0:
+                devider += row["nbr"]
 
             exp_service += row["exploitation"]["en_service"]
             exp_chomage += row["exploitation"]["en_chomage"]
@@ -266,10 +269,10 @@ class AnalyseQuantitativeResume:
             rep_ALREM += row["reparation"]["ALREM"]
             rep_autre += row["reparation"]["autre"]
 
-        age_moyen = age_total / nbr_totale if nbr_totale else 0
+        age_moyen = age_total / devider if devider else 0
 
         return {
-            "nombre_totale": nbr_totale,
+            "nombre_totale": nbr_total,
             "age_moyen": int(age_moyen),
             "exploitation": {
                 "en_service": exp_service,

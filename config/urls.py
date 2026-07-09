@@ -25,7 +25,10 @@ from api.views import (
     TP_AQ_API_View,
     TP_AQ_resume_API_View,
     TP_AE_API_View,
-    TP_AE_resume_API_View,)
+    TP_AE_resume_API_View,
+    ValidatePointageView,
+    ImportPointageView,
+    )
 
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -61,6 +64,8 @@ router.register(r'site', views.SiteViewSet, 'site')
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
+    path('api/pointage-validate/', ValidatePointageView.as_view(), name='validate_pointage'),
+    path('api/pointage-import/', ImportPointageView.as_view(), name='import_pointage'),
     path('api/pointage-upload/', pointage_upload_view),
     path('api/situation-upload/', situation_upload_view),
     path('api/aqtp/', TP_AQ_API_View.as_view()),

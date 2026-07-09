@@ -18,26 +18,38 @@ from .models import (
     Regularisation_GM,
 )
 
+
+DATETIME_FORMATS = (
+    "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%d %H:%M:%S",
+    "%d/%m/%Y %H:%M",
+    "%d/%m/%Y %H:%M:%S",
+    "%d/%m/%Y",
+    "%Y-%m-%d",
+)
+
 def normalize_datetime(value):
     if not value:
         return None
 
-    if isinstance(value, str):
-        # trim SQL Server microseconds (7 digits -> invalid in Python)
-        if "." in value:
-            value = value[:26]
+    if not isinstance(value, str):
+        return value
 
-        # fallback parsing safety
+    value = value.strip()
+
+    # SQL Server can export 7 fractional digits; Python accepts up to 6.
+    if "." in value:
+        date_part, frac = value.split(".", 1)
+        if frac.isdigit():
+            value = f"{date_part}.{frac[:6]}"
+
+    for fmt in DATETIME_FORMATS:
         try:
-            return datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f")
+            return datetime.strptime(value, fmt)
         except ValueError:
-            try:
-                return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                return value
+            pass
 
     return value
-
 
 # Type_Marque class resources
 class Type_Marque_Resource(resources.ModelResource):

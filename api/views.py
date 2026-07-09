@@ -1,7 +1,15 @@
+import json
+from urllib import request
+
 from django.shortcuts import render
+from .services.csv_import.pointage_schema import POINTAGE_SCHEMA
 from rest_framework import viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser
+from rest_framework import status
+
+
 
 import tablib
 from django.http import JsonResponse
@@ -11,7 +19,9 @@ from api.services import (
     AnalyseQuantitative,
     AnalyseQuantitativeResume,
     AnalyseExploitation,
-    AnalyseExploitationResume,)
+    AnalyseExploitationResume,
+    CsvImporter,
+    CsvValidator,)
 
 
 
@@ -142,7 +152,7 @@ class SiteViewSet(viewsets.ModelViewSet):
     serializer_class = SiteSerializer
 
 def pointage_upload_view(request):
-
+    #this used to import csv pointage data from db (features bulk import to make it faster)
     if request.method == "POST":
 
         file_obj = request.FILES["file"]
@@ -226,3 +236,49 @@ class TP_AE_resume_API_View(APIView):
         )
 
         return Response(data)
+    
+class ValidatePointageView(APIView):
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+        file = request.FILES.get("file")
+        mapping = json.loads(request.POST["mapping"])  
+
+        if file is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun fichier reçu.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        validator = CsvValidator(
+            uploaded_file=file,
+            schema=POINTAGE_SCHEMA,
+            mapping=mapping,
+            )
+
+        report = validator.validate()
+
+        return Response(report.to_dict())   
+    
+class ImportPointageView(APIView):
+    #this is used to import csv files sent by Filiales
+    def post(self, request):
+
+        file_obj = request.FILES["file"]
+        mapping = json.loads(request.POST["mapping"]) 
+        filiale = request.POST["filiale"]
+        service = CsvImporter(
+            uploaded_file=file_obj,
+            schema=POINTAGE_SCHEMA,
+            mapping=mapping,
+            filiale=filiale
+        )
+        service.import_data()
+ 
+        return JsonResponse({
+            "success": True,
+            "message": "Import completed successfully"
+        })
