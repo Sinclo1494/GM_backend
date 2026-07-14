@@ -14,14 +14,14 @@ class Pointage(models.Model):
         related_name="pointages_ids",
     )
     mmaa = models.DateField()
-    taux_location = models.DecimalField(max_digits=20, decimal_places=5)
+    taux_location = models.DecimalField(max_digits=20, decimal_places=7)
     heures_service = models.DecimalField(max_digits=10, decimal_places=1)
     heures_chomage = models.DecimalField(max_digits=10, decimal_places=1)
     heures_panne = models.DecimalField(max_digits=10, decimal_places=1)
     potentiel = models.DecimalField(max_digits=5, decimal_places=1)
-    montant_service = models.DecimalField(max_digits=20, decimal_places=4)
-    montant_chomage = models.DecimalField(max_digits=20, decimal_places=4)
-    montant_panne = models.DecimalField(max_digits=20, decimal_places=4)
+    montant_service = models.DecimalField(max_digits=20, decimal_places=7)
+    montant_chomage = models.DecimalField(max_digits=20, decimal_places=7)
+    montant_panne = models.DecimalField(max_digits=20, decimal_places=7)
     est_bloque = models.BooleanField(default=False)
     user_id = models.ForeignKey(
         User,

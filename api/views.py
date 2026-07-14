@@ -1,18 +1,21 @@
 import json
-from urllib import request
 
 from django.shortcuts import render
-from .services.csv_import.pointage_schema import POINTAGE_SCHEMA
-from rest_framework import viewsets
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.parsers import MultiPartParser
-from rest_framework import status
-
-
-
-import tablib
 from django.http import JsonResponse
+
+from rest_framework import status, viewsets
+from rest_framework.parsers import MultiPartParser, JSONParser
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .services.csv_import.pointage_schema import POINTAGE_SCHEMA
+from .services.csv_import.validation_cache import ValidationCache
+from .services.csv_import.csv_importer import (
+    CsvImporter,
+    ValidationExpiredError,
+    PointageImportError,
+)
+
 from api.services import (
     PointageImportService,
     SituationImportService,
@@ -20,8 +23,8 @@ from api.services import (
     AnalyseQuantitativeResume,
     AnalyseExploitation,
     AnalyseExploitationResume,
-    CsvImporter,
-    CsvValidator,)
+    CsvValidator,
+)
 
 
 
@@ -238,11 +241,16 @@ class TP_AE_resume_API_View(APIView):
         return Response(data)
     
 class ValidatePointageView(APIView):
+
     parser_classes = [MultiPartParser]
 
     def post(self, request):
+
+        # -----------------------------------------------------
+        # 1. File
+        # -----------------------------------------------------
+
         file = request.FILES.get("file")
-        mapping = json.loads(request.POST["mapping"])  
 
         if file is None:
             return Response(
@@ -252,33 +260,183 @@ class ValidatePointageView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        
-        validator = CsvValidator(
-            uploaded_file=file,
-            schema=POINTAGE_SCHEMA,
-            mapping=mapping,
+
+        # -----------------------------------------------------
+        # 2. Filiale
+        # -----------------------------------------------------
+
+        filiale = request.POST.get("filiale")
+
+        if not filiale or not filiale.strip():
+            return Response(
+                {
+                    "success": False,
+                    "message": "La filiale est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        report = validator.validate()
+        filiale = filiale.strip()
 
-        return Response(report.to_dict())   
-    
+        # -----------------------------------------------------
+        # 3. Mapping
+        # -----------------------------------------------------
+
+        raw_mapping = request.POST.get("mapping")
+
+        if not raw_mapping:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            mapping = json.loads(raw_mapping)
+
+        except (json.JSONDecodeError, TypeError):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(mapping, dict):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 4. Validation
+        # -----------------------------------------------------
+
+        try:
+
+            validator = CsvValidator(
+                uploaded_file=file,
+                schema=POINTAGE_SCHEMA,
+                mapping=mapping,
+                filiale=filiale,
+            )
+
+            report = validator.validate()
+
+        except Exception as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 5. Serialize validation result
+        # -----------------------------------------------------
+
+        response_data = report.to_dict()
+
+        # -----------------------------------------------------
+        # 6. Cache only successful validations
+        # -----------------------------------------------------
+
+        if report.success:
+
+            validation_id = ValidationCache.save(
+                report=report,
+                filiale=filiale,
+            )
+
+            response_data["validation_id"] = validation_id
+
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK,
+        )
+
+
 class ImportPointageView(APIView):
-    #this is used to import csv files sent by Filiales
+
+    parser_classes = [JSONParser]
+
     def post(self, request):
 
-        file_obj = request.FILES["file"]
-        mapping = json.loads(request.POST["mapping"]) 
-        filiale = request.POST["filiale"]
-        service = CsvImporter(
-            uploaded_file=file_obj,
-            schema=POINTAGE_SCHEMA,
-            mapping=mapping,
-            filiale=filiale
+        # -----------------------------------------------------
+        # 1. Validation ID
+        # -----------------------------------------------------
+
+        validation_id = request.data.get("validation_id")
+
+        if not validation_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": "L'identifiant de validation est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 2. Import already validated rows
+        # -----------------------------------------------------
+
+        try:
+
+            importer = CsvImporter(
+                validation_id=validation_id,
+            )
+
+            result = importer.import_data()
+
+        except ValidationExpiredError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_410_GONE,
+            )
+
+        except PointageImportError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        except Exception:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Une erreur inattendue est survenue "
+                        "pendant l'import."
+                    ),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # -----------------------------------------------------
+        # 3. Successful import
+        # -----------------------------------------------------
+
+        return Response(
+            {
+                **result,
+                "message": "Import terminé avec succès.",
+            },
+            status=status.HTTP_201_CREATED,
         )
-        service.import_data()
- 
-        return JsonResponse({
-            "success": True,
-            "message": "Import completed successfully"
-        })
