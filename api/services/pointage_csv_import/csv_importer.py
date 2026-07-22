@@ -2,7 +2,7 @@ from django.db import IntegrityError, transaction
 
 from api.models import Pointage
 
-from .validation_cache import ValidationCache
+from ..validation_cache import ValidationCache
 
 
 BATCH_SIZE = 5000
@@ -12,7 +12,7 @@ BATCH_SIZE = 5000
 # Import exceptions
 # ---------------------------------------------------------
 
-class ValidationExpiredError(Exception):
+class PointageValidationExpiredError(Exception):
     """Validation does not exist or has expired."""
     pass
 
@@ -26,7 +26,7 @@ class PointageImportError(Exception):
 # CSV Importer
 # ---------------------------------------------------------
 
-class CsvImporter:
+class PointageCsvImporter:
 
     def __init__(
         self,
@@ -49,7 +49,7 @@ class CsvImporter:
         )
 
         if payload is None:
-            raise ValidationExpiredError(
+            raise PointageValidationExpiredError(
                 "La validation est introuvable ou a expiré. "
                 "Veuillez valider le fichier à nouveau."
             )

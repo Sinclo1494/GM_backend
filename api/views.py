@@ -8,12 +8,39 @@ from rest_framework.parsers import MultiPartParser, JSONParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .services.csv_import.pointage_schema import POINTAGE_SCHEMA
-from .services.csv_import.validation_cache import ValidationCache
-from .services.csv_import.csv_importer import (
-    CsvImporter,
-    ValidationExpiredError,
+from .services.pointage_csv_import.pointage_schema import POINTAGE_SCHEMA
+from .services.gm_csv_import.gm_schema import GRAND_MATERIEL_SCHEMA
+from .services.marque_csv_import.marque_schema import MARQUE_MATERIEL_SCHEMA
+from .services.type_marque_csv_import.type_marque_schema import TYPE_MARQUE_SCHEMA
+from .services.sous_famille_csv_import.sous_famille_schema import SOUS_FAMILLE_SCHEMA
+from .services.validation_cache import ValidationCache
+from .services.pointage_csv_import.csv_importer import (
+    PointageCsvImporter,
+    PointageValidationExpiredError,
     PointageImportError,
+)
+from .services.gm_csv_import.csv_importer import (
+    GMCsvImporter,
+    GMValidationExpiredError,
+    GrandMaterielImportError
+)
+
+from .services.marque_csv_import.csv_importer import (
+    MarqueCsvImporter,
+    MarqueValidationExpiredError,
+    MarqueImportError
+)
+
+from .services.type_marque_csv_import.csv_importer import (
+    TypeMarqueCsvImporter,
+    TypeMarqueValidationExpiredError,
+    TypeMarqueImportError
+)
+
+from .services.sous_famille_csv_import.csv_importer import (
+    SousFamilleCsvImporter,
+    SousFamilleValidationExpiredError,
+    SousFamilleImportError
 )
 
 from api.services import (
@@ -23,7 +50,11 @@ from api.services import (
     AnalyseQuantitativeResume,
     AnalyseExploitation,
     AnalyseExploitationResume,
-    CsvValidator,
+    PointageCsvValidator,
+    GMCsvValidator,
+    MarqueCsvValidator,
+    TypeMarqueCsvValidator,
+    SousFamilleCsvValidator,
 )
 
 
@@ -320,7 +351,7 @@ class ValidatePointageView(APIView):
 
         try:
 
-            validator = CsvValidator(
+            validator = PointageCsvValidator(
                 uploaded_file=file,
                 schema=POINTAGE_SCHEMA,
                 mapping=mapping,
@@ -390,13 +421,13 @@ class ImportPointageView(APIView):
 
         try:
 
-            importer = CsvImporter(
+            importer = PointageCsvImporter(
                 validation_id=validation_id,
             )
 
             result = importer.import_data()
 
-        except ValidationExpiredError as exc:
+        except PointageValidationExpiredError as exc:
 
             return Response(
                 {
@@ -440,3 +471,796 @@ class ImportPointageView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class ValidateGrandMaterielView(APIView):
+
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+
+        # -----------------------------------------------------
+        # 1. Uploaded file
+        # -----------------------------------------------------
+
+        file = request.FILES.get("file")
+
+        if file is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun fichier reçu.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 2. Selected filiale
+        #
+        # The UI filiale is optional if the CSV already
+        # contains the code_filiale_g column.
+        # -----------------------------------------------------
+
+        filiale = request.POST.get("filiale")
+
+        if filiale:
+            filiale = filiale.strip()
+
+        # -----------------------------------------------------
+        # 3. Column mapping
+        # -----------------------------------------------------
+
+        raw_mapping = request.POST.get("mapping")
+
+        if not raw_mapping:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            mapping = json.loads(raw_mapping)
+
+        except (json.JSONDecodeError, TypeError):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(mapping, dict):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 4. Validate CSV
+        # -----------------------------------------------------
+
+        try:
+
+            validator = GMCsvValidator(
+                uploaded_file=file,
+                schema=GRAND_MATERIEL_SCHEMA,
+                mapping=mapping,
+                filiale=filiale,
+            )
+
+            report = validator.validate()
+
+        except Exception as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 5. Build response
+        # -----------------------------------------------------
+
+        response_data = report.to_dict()
+
+        # -----------------------------------------------------
+        # 6. Cache successful validation
+        # -----------------------------------------------------
+
+        if report.success:
+
+            validation_id = ValidationCache.save(
+                report=report,
+                filiale=filiale,
+            )
+
+            response_data["validation_id"] = validation_id
+
+        # -----------------------------------------------------
+        # 7. Return validation result
+        # -----------------------------------------------------
+
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK,
+        )
+    
+class ImportGrandMaterielView(APIView):
+
+    parser_classes = [JSONParser]
+
+    def post(self, request):
+
+        # -----------------------------------------------------
+        # 1. Validation ID
+        # -----------------------------------------------------
+
+        validation_id = request.data.get("validation_id")
+
+        if not validation_id:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "L'identifiant de validation est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 2. Import validated rows
+        # -----------------------------------------------------
+
+        try:
+
+            importer = GMCsvImporter(
+                validation_id=validation_id,
+            )
+
+            result = importer.import_data()
+
+        except GMValidationExpiredError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_410_GONE,
+            )
+
+        except GrandMaterielImportError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        except Exception:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Une erreur inattendue est survenue "
+                        "pendant l'import."
+                    ),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # -----------------------------------------------------
+        # 3. Successful import
+        # -----------------------------------------------------
+
+        return Response(
+            {
+                **result,
+                "message": "Import terminé avec succès.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+    
+
+class ValidateMarqueView(APIView):
+
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+
+        # -----------------------------------------------------
+        # 1. Uploaded file
+        # -----------------------------------------------------
+
+        file = request.FILES.get("file")
+
+        if file is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun fichier reçu.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        # -----------------------------------------------------
+        # 2. Column mapping
+        # -----------------------------------------------------
+
+        raw_mapping = request.POST.get("mapping")
+
+        if not raw_mapping:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            mapping = json.loads(raw_mapping)
+
+        except (json.JSONDecodeError, TypeError):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(mapping, dict):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 3. Validate CSV
+        # -----------------------------------------------------
+
+        try:
+
+            validator = MarqueCsvValidator(
+                uploaded_file=file,
+                schema=MARQUE_MATERIEL_SCHEMA,
+                mapping=mapping,
+            )
+
+            report = validator.validate()
+
+        except Exception as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 4. Build response
+        # -----------------------------------------------------
+
+        response_data = report.to_dict()
+
+        # -----------------------------------------------------
+        # 5. Cache successful validation
+        # -----------------------------------------------------
+
+        if report.success:
+
+            validation_id = ValidationCache.save(
+                report=report,
+                filiale='',
+            )
+
+            response_data["validation_id"] = validation_id
+
+        # -----------------------------------------------------
+        # 6. Return validation result
+        # -----------------------------------------------------
+
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK,
+        )
+    
+class ImportMarqueView(APIView):
+
+    parser_classes = [JSONParser]
+
+    def post(self, request):
+
+        # -----------------------------------------------------
+        # 1. Validation ID
+        # -----------------------------------------------------
+
+        validation_id = request.data.get("validation_id")
+
+        if not validation_id:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "L'identifiant de validation est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 2. Import validated rows
+        # -----------------------------------------------------
+
+        try:
+
+            importer = MarqueCsvImporter(
+                validation_id=validation_id,
+            )
+
+            result = importer.import_data()
+
+        except MarqueValidationExpiredError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_410_GONE,
+            )
+
+        except MarqueImportError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        except Exception:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Une erreur inattendue est survenue "
+                        "pendant l'import."
+                    ),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # -----------------------------------------------------
+        # 3. Successful import
+        # -----------------------------------------------------
+
+        return Response(
+            {
+                **result,
+                "message": "Import terminé avec succès.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+    
+class ValidateTypeMarqueView(APIView):
+
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+        print ("this seems okay")
+
+        # -----------------------------------------------------
+        # 1. Uploaded file
+        # -----------------------------------------------------
+
+        file = request.FILES.get("file")
+
+        if file is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun fichier reçu.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        # -----------------------------------------------------
+        # 2. Column mapping
+        # -----------------------------------------------------
+
+        raw_mapping = request.POST.get("mapping")
+
+        if not raw_mapping:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            mapping = json.loads(raw_mapping)
+
+        except (json.JSONDecodeError, TypeError):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(mapping, dict):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 3. Validate CSV
+        # -----------------------------------------------------
+
+        try:
+
+            validator = TypeMarqueCsvValidator(
+                uploaded_file=file,
+                schema=TYPE_MARQUE_SCHEMA,
+                mapping=mapping,
+            )
+
+            report = validator.validate()
+
+        except Exception as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 4. Build response
+        # -----------------------------------------------------
+
+        response_data = report.to_dict()
+
+        # -----------------------------------------------------
+        # 5. Cache successful validation
+        # -----------------------------------------------------
+
+        if report.success:
+
+            validation_id = ValidationCache.save(
+                report=report,
+                filiale='',
+            )
+
+            response_data["validation_id"] = validation_id
+
+        # -----------------------------------------------------
+        # 6. Return validation result
+        # -----------------------------------------------------
+
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK,
+        )
+
+class ImportTypeMarqueView(APIView):
+
+    parser_classes = [JSONParser]
+
+    def post(self, request):
+
+        # -----------------------------------------------------
+        # 1. Validation ID
+        # -----------------------------------------------------
+
+        validation_id = request.data.get("validation_id")
+
+        if not validation_id:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "L'identifiant de validation est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 2. Import validated rows
+        # -----------------------------------------------------
+
+        try:
+
+            importer = TypeMarqueCsvImporter(
+                validation_id=validation_id,
+            )
+
+            result = importer.import_data()
+
+        except TypeMarqueValidationExpiredError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_410_GONE,
+            )
+
+        except TypeMarqueImportError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        except Exception:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Une erreur inattendue est survenue "
+                        "pendant l'import."
+                    ),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # -----------------------------------------------------
+        # 3. Successful import
+        # -----------------------------------------------------
+
+        return Response(
+            {
+                **result,
+                "message": "Import terminé avec succès.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+    
+class ValidateSousFamilleView(APIView):
+
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+        print ("this seems okay")
+
+        # -----------------------------------------------------
+        # 1. Uploaded file
+        # -----------------------------------------------------
+
+        file = request.FILES.get("file")
+
+        if file is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun fichier reçu.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        # -----------------------------------------------------
+        # 2. Column mapping
+        # -----------------------------------------------------
+
+        raw_mapping = request.POST.get("mapping")
+
+        if not raw_mapping:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            mapping = json.loads(raw_mapping)
+
+        except (json.JSONDecodeError, TypeError):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(mapping, dict):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 3. Validate CSV
+        # -----------------------------------------------------
+
+        try:
+
+            validator = SousFamilleCsvValidator(
+                uploaded_file=file,
+                schema=SOUS_FAMILLE_SCHEMA,
+                mapping=mapping,
+            )
+
+            report = validator.validate()
+
+        except Exception as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 4. Build response
+        # -----------------------------------------------------
+
+        response_data = report.to_dict()
+
+        # -----------------------------------------------------
+        # 5. Cache successful validation
+        # -----------------------------------------------------
+
+        if report.success:
+
+            validation_id = ValidationCache.save(
+                report=report,
+                filiale='',
+            )
+
+            response_data["validation_id"] = validation_id
+
+        # -----------------------------------------------------
+        # 6. Return validation result
+        # -----------------------------------------------------
+
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK,
+        )
+
+class ImportSousFamilleView(APIView):
+
+    parser_classes = [JSONParser]
+
+    def post(self, request):
+
+        # -----------------------------------------------------
+        # 1. Validation ID
+        # -----------------------------------------------------
+
+        validation_id = request.data.get("validation_id")
+
+        if not validation_id:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "L'identifiant de validation est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 2. Import validated rows
+        # -----------------------------------------------------
+
+        try:
+
+            importer = SousFamilleCsvImporter(
+                validation_id=validation_id,
+            )
+
+            result = importer.import_data()
+
+        except SousFamilleValidationExpiredError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_410_GONE,
+            )
+
+        except SousFamilleImportError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        except Exception:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Une erreur inattendue est survenue "
+                        "pendant l'import."
+                    ),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # -----------------------------------------------------
+        # 3. Successful import
+        # -----------------------------------------------------
+
+        return Response(
+            {
+                **result,
+                "message": "Import terminé avec succès.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+    

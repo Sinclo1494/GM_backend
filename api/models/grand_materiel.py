@@ -11,9 +11,9 @@ class Grand_Materiel(models.Model):
     num_serie = models.CharField(max_length=100, null=True, blank=True)
     immatriculation = models.CharField(max_length=100, null=True, blank=True)
     date_acquisition = models.DateField(null=True,blank=True)
-    valeur_acquisition = models.DecimalField(max_digits=20, decimal_places=4)
-    valeur_remplacement = models.DecimalField(max_digits=20, decimal_places=4)
-    taux_amortissement = models.DecimalField(max_digits=20, decimal_places=4)
+    valeur_acquisition = models.DecimalField(max_digits=20, decimal_places=6)
+    valeur_remplacement = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
+    taux_amortissement = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
     puissance_materiel = models.CharField(max_length=100, null=True, blank=True)
     code_sous_famille_materiel = models.ForeignKey(
         "Sous_Famille_Materiel",

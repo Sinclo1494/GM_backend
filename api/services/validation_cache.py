@@ -4,13 +4,19 @@ from django.core.cache import cache
 
 
 CACHE_TIMEOUT = 600  # 10 minutes
-CACHE_PREFIX = "pointage_validation"
+CACHE_PREFIX = "csv_validation"
 
 
 class ValidationCache:
+    """
+    Stores successful CSV validation results temporarily.
+
+    The cache allows the import step to reuse the validated rows
+    without validating the CSV a second time.
+    """
 
     # ---------------------------------------------------------
-    # Cache key
+    # Build cache key
     # ---------------------------------------------------------
 
     @staticmethod
@@ -18,7 +24,7 @@ class ValidationCache:
         return f"{CACHE_PREFIX}:{validation_id}"
 
     # ---------------------------------------------------------
-    # Save successful validation
+    # Save validation result
     # ---------------------------------------------------------
 
     @classmethod
@@ -27,11 +33,15 @@ class ValidationCache:
         report,
         filiale,
     ) -> str:
+        """
+        Save a successful validation result and return
+        its unique validation identifier.
+        """
 
         if not report.success:
             raise ValueError(
-                "Impossible de mettre en cache "
-                "une validation contenant des erreurs."
+                "Impossible de mettre en cache une validation "
+                "contenant des erreurs."
             )
 
         validation_id = str(uuid4())
@@ -51,7 +61,7 @@ class ValidationCache:
         return validation_id
 
     # ---------------------------------------------------------
-    # Retrieve validated import payload
+    # Retrieve validation payload
     # ---------------------------------------------------------
 
     @classmethod
@@ -59,6 +69,9 @@ class ValidationCache:
         cls,
         validation_id: str,
     ) -> dict | None:
+        """
+        Retrieve a previously validated payload.
+        """
 
         if not validation_id:
             return None
@@ -76,6 +89,9 @@ class ValidationCache:
         cls,
         validation_id: str,
     ) -> None:
+        """
+        Remove a validation payload from the cache.
+        """
 
         if not validation_id:
             return

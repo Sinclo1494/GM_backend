@@ -1,15 +1,14 @@
 import csv
-from decimal import Decimal
-
+from decimal import Decimal, ROUND_HALF_UP
 from django.core.exceptions import ValidationError as DjangoValidationError
-
 from api.models import Affectation_Materiel, Pointage
-
 from .csv_normalizer import CsvNormalizer
 from .validation import ValidationReport, CsvSchema
 
+NB_DECIMALS = Decimal("0.01")
 
-class CsvValidator:
+
+class PointageCsvValidator:
 
     def __init__(
         self,
@@ -128,10 +127,7 @@ class CsvValidator:
 
         for line_number, row in enumerate(reader, start=2):
 
-            if not row or all(
-                value.strip() == ""
-                for value in row
-            ):
+            if not row or all(value.strip() == "" for value in row):
                 continue
 
             report.increment_total()
@@ -233,15 +229,11 @@ class CsvValidator:
 
             affectation_key = (
                 code_materiel,
-                self.normalize_affectation_date(
-                    date_affectation
-                ),
+                self.normalize_affectation_date(date_affectation),
                 code_site,
             )
 
-            affectation_id = self.affectations.get(
-                affectation_key
-            )
+            affectation_id = self.affectations.get(affectation_key)
 
             if affectation_id is None:
 
@@ -263,10 +255,7 @@ class CsvValidator:
 
         mmaa = row.get("mmaa")
 
-        if (
-            affectation_id is not None
-            and mmaa is not None
-        ):
+        if affectation_id is not None and mmaa is not None:
 
             unique_key = (
                 affectation_id,
@@ -280,18 +269,13 @@ class CsvValidator:
                     line=line_number,
                     field="mmaa",
                     value=mmaa,
-                    message=(
-                        "Le pointage existe déjà "
-                        "dans la base de données."
-                    ),
+                    message=("Le pointage existe déjà " "dans la base de données."),
                 )
 
             # Duplicate inside current CSV
             if unique_key in self.seen_pointages:
 
-                first_line = self.seen_pointages[
-                    unique_key
-                ]
+                first_line = self.seen_pointages[unique_key]
 
                 report.add_error(
                     line=line_number,
@@ -307,9 +291,7 @@ class CsvValidator:
             else:
                 # Track the first occurrence even if another
                 # validation error exists on the current row.
-                self.seen_pointages[
-                    unique_key
-                ] = line_number
+                self.seen_pointages[unique_key] = line_number
 
         # -----------------------------------------------------
         # 4. Calculate derived fields
@@ -357,24 +339,24 @@ class CsvValidator:
         if taux_location is None:
             return
 
-        heures_service = row.get("heures_service")
-        heures_chomage = row.get("heures_chomage")
-        heures_panne = row.get("heures_panne")
+        calculations = (
+            ("heures_service", "montant_service"),
+            ("heures_chomage", "montant_chomage"),
+            ("heures_panne", "montant_panne"),
+        )
 
-        if heures_service is not None:
-            row["montant_service"] = (
-                heures_service * taux_location
-            )
+        for heures_field, montant_field in calculations:
 
-        if heures_chomage is not None:
-            row["montant_chomage"] = (
-                heures_chomage * taux_location
-            )
+            # Keep the value supplied by the CSV if present
+            if row.get(montant_field) is not None:
+                continue
 
-        if heures_panne is not None:
-            row["montant_panne"] = (
-                heures_panne * taux_location
-            )
+            heures = row.get(heures_field)
+
+            if heures is None:
+                continue
+
+            row[montant_field] = heures * taux_location
 
     # ---------------------------------------------------------
     # Warnings
@@ -403,10 +385,7 @@ class CsvValidator:
                 line=line_number,
                 field="heures",
                 value="0",
-                message=(
-                    "Toutes les valeurs d'heures "
-                    "sont égales à zéro."
-                ),
+                message=("Toutes les valeurs d'heures " "sont égales à zéro."),
             )
 
         # Potential equal to zero
@@ -419,19 +398,6 @@ class CsvValidator:
                 message="Le potentiel est égal à zéro.",
             )
 
-        # Missing optional modification date
-        if row.get("date_modification") is None:
-
-            report.add_warning(
-                line=line_number,
-                field="date_modification",
-                value=None,
-                message=(
-                    "La date de modification "
-                    "n'est pas renseignée."
-                ),
-            )
-
         # Missing optional boolean
         if row.get("est_bloque") is None:
 
@@ -439,11 +405,53 @@ class CsvValidator:
                 line=line_number,
                 field="est_bloque",
                 value=None,
-                message=(
-                    "La valeur est_bloque n'est pas "
-                    "renseignée."
-                ),
+                message=("La valeur est_bloque n'est pas " "renseignée."),
             )
+
+        # Check calculated amounts
+
+        taux_location = row.get("taux_location")
+
+        if taux_location is not None:
+
+            checks = (
+                ("heures_service", "montant_service"),
+                ("heures_chomage", "montant_chomage"),
+                ("heures_panne", "montant_panne"),
+            )
+
+            for heures_field, montant_field in checks:
+
+                # Only check values that were actually provided in the CSV.
+                montant = row.get(montant_field)
+
+                if montant is None:
+                    continue
+
+                heures = row.get(heures_field)
+
+                if heures is None:
+                    continue
+
+                expected = (heures * taux_location).quantize(
+                    NB_DECIMALS,
+                    rounding=ROUND_HALF_UP,
+                )
+                actual = montant.quantize(
+                    NB_DECIMALS,
+                    rounding=ROUND_HALF_UP,
+                )
+
+                if actual != expected:
+                    report.add_warning(
+                        line=line_number,
+                        field=montant_field,
+                        value=actual,
+                        message=(
+                            f"La valeur devrait être {expected} "
+                            f"(= {heures_field} × taux_location)."
+                        ),
+                    )
 
     # ---------------------------------------------------------
     # Django model validation
@@ -472,9 +480,7 @@ class CsvValidator:
 
             if hasattr(exc, "message_dict"):
 
-                for field_name, messages in (
-                    exc.message_dict.items()
-                ):
+                for field_name, messages in exc.message_dict.items():
 
                     for message in messages:
 

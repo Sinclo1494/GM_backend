@@ -1,5 +1,6 @@
 import csv
 import io
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 
 class CsvNormalizationError(Exception):
@@ -8,7 +9,62 @@ class CsvNormalizationError(Exception):
 
 
 class CsvNormalizer:
+    
+    @staticmethod
+    def normalize_datetime(value: str) -> str:
+        """
+        Normalize SQL Server datetime strings.
 
+        Examples:
+            "2025-09-01 00:00:00.000" -> "2025-09-01 00:00:00"
+            "2025-09-01 12:34:56.123" -> "2025-09-01 12:34:56"
+            "2025-09-01"             -> "2025-09-01"
+            ""                       -> ""
+        """
+
+        if not value:
+            return ""
+
+        value = value.strip()
+
+        # Remove SQL Server milliseconds
+        if "." in value:
+            value = value.split(".", 1)[0]
+
+        return value
+
+    @staticmethod
+    def normalize_decimal(value: str) -> str:
+        """
+        Normalize decimal values coming from CSV.
+
+        Examples:
+            "1 234,56"  -> "1234.56"
+            "12,5"      -> "12.5"
+            " 45 "      -> "45"
+            "-"         -> "0.0"
+            ""          -> ""
+        """
+
+        if not value:
+            return ""
+        value = (value.replace("\xa0", "")  # non-breaking spaces
+                 .replace(" ", "")
+                 .replace("-","0")
+                 .replace(",", ".")
+                 .strip())
+        try:
+            return str(
+                Decimal(value).quantize(
+                    Decimal("0.000001"),
+                    rounding=ROUND_HALF_UP,
+                )
+            )
+        except InvalidOperation:
+            return value
+
+        
+    
     @staticmethod
     def normalize(uploaded_file, schema, mapping, filiale=None):
 
@@ -173,6 +229,37 @@ class CsvNormalizer:
                         site = f"{filiale}/{site}"
 
                     normalized_row[code_site_index] = site
+                
+                # -------------------------------------------------
+                # Normalize decimal amounts
+                # -------------------------------------------------
+
+                for field_name in (
+                    "montant_service",
+                    "montant_chomage",
+                    "montant_panne",
+                    "taux_location",
+                ):
+                    if field_name in expected_headers:
+                        index = expected_headers.index(field_name)
+                        normalized_row[index] = CsvNormalizer.normalize_decimal(
+                            normalized_row[index]
+                        )
+
+                # -------------------------------------------------
+                # Normalize datetimes
+                # -------------------------------------------------
+
+                for field_name in (
+                    "mmaa",
+                    "date_affectation",
+                    "date_modification",
+                ):
+                    if field_name in expected_headers:
+                        index = expected_headers.index(field_name)
+                        normalized_row[index] = CsvNormalizer.normalize_datetime(
+                            normalized_row[index]
+                        )
 
                 writer.writerow(normalized_row)
 

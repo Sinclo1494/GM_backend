@@ -137,6 +137,7 @@ POINTAGE_SCHEMA = CsvSchema([
             "%Y%m%d",
             "%Y-%m-%d",
             "%d/%m/%Y",
+            "%d-%m-%Y",
         ),
     ),
 
@@ -155,6 +156,7 @@ POINTAGE_SCHEMA = CsvSchema([
             "%d/%m/%Y %H:%M:%S",
             "%d/%m/%Y %H:%M",
             "%d/%m/%Y",
+            "%d-%m-%Y",
         ),
     ),
 
@@ -167,5 +169,36 @@ POINTAGE_SCHEMA = CsvSchema([
         name="est_bloque",
         required=False,
         validator=boolean(),
+    ),
+
+    CsvField(
+        index=11,
+        name="montant_service",
+        required=False,
+        validator=decimal(
+            max_digits=20,
+            decimal_places=6,
+            positive=True,
+        ),
+    ),
+    CsvField(
+        index=12,
+        name="montant_chomage",
+        required=False,
+        validator=decimal(
+            max_digits=20,
+            decimal_places=6,
+            positive=True,
+        ),
+    ),
+    CsvField(
+        index=13,
+        name="montant_panne",
+        required=False,
+        validator=decimal(
+            max_digits=20,
+            decimal_places=6,
+            positive=True,
+        ),
     ),
 ])
