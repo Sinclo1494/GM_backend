@@ -36,6 +36,8 @@ from api.views import (
     ImportTypeMarqueView,
     ValidateSousFamilleView,
     ImportSousFamilleView,
+    ValidateAffectationSituationView,
+    ImportAffectationSituationView,
     )
 
 from rest_framework_simplejwt.views import (
@@ -82,6 +84,8 @@ urlpatterns = [
     path('api/type-marque-import/', ImportTypeMarqueView.as_view(), name='import_type_marque'),
     path('api/sous-famille-validate/', ValidateSousFamilleView.as_view(), name='validate_sous_famille'),
     path('api/sous-famille-import/', ImportSousFamilleView.as_view(), name='import_sous_famille'),
+    path('api/situation-affectation-validate/', ValidateAffectationSituationView.as_view(), name='validate_sous_famille'),
+    path('api/sous-famille-import/', ImportAffectationSituationView.as_view(), name='import_sous_famille'),
     path('api/pointage-upload/', pointage_upload_view),
     path('api/situation-upload/', situation_upload_view),
     path('api/aqtp/', TP_AQ_API_View.as_view()),
