@@ -1,28 +1,28 @@
 import csv
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+
 from api.models import (
-    Grand_Materiel,
     Site,
-    Type_Affectation,
-    Type_Situation,
-    Type_Etat_Materiel,
+    Filiale,
+    Division,
 )
 
 from .csv_normalizer import CsvNormalizer
 from .validation import CsvSchema, ValidationReport
 
 
-class SituationAffectationCsvValidator:
+class SiteCsvValidator:
 
     def __init__(
         self,
         uploaded_file,
         schema: CsvSchema,
         mapping,
-        filiale,
         delimiter=";",
         encoding="utf-8",
     ):
+
         self.schema = schema
         self.delimiter = delimiter
         self.encoding = encoding
@@ -31,59 +31,42 @@ class SituationAffectationCsvValidator:
             uploaded_file=uploaded_file,
             schema=schema,
             mapping=mapping,
-            filiale=filiale,
         )
 
-        self.materials = set()
-        self.sites = set()
-        self.type_affectations = set()
-        self.type_situations = {}
-        self.etats = set()
+        # ---------------------------------------------------------
+        # Validation caches
+        # ---------------------------------------------------------
 
-        # duplicate_key -> first line
-        self.seen_rows = {}
+        self.filiales = set()
+        self.divisions = set()
+
+        self.existing_sites = set()
+
+        self.seen_sites = {}
 
     # ---------------------------------------------------------
-    # Cache
+    # Cache loading
     # ---------------------------------------------------------
 
     def load_cache(self):
 
-        self.materials = set(
-            Grand_Materiel.objects.values_list(
-                "code_materiel",
+        self.filiales = set(
+            Filiale.objects.values_list(
+                "code_filiale",
                 flat=True,
             )
         )
 
-        self.sites = set(
+        self.divisions = set(
+            Division.objects.values_list(
+                "code_division",
+                flat=True,
+            )
+        )
+
+        self.existing_sites = set(
             Site.objects.values_list(
                 "code_site",
-                flat=True,
-            )
-        )
-
-        self.type_affectations = set(
-            Type_Affectation.objects.values_list(
-                "code_type_affectation",
-                flat=True,
-            )
-        )
-
-        self.type_situations = {}
-
-        for affectation, situation in Type_Situation.objects.values_list(
-            "code_type_affectation",
-            "code_type_situation",
-        ):
-            self.type_situations.setdefault(
-                affectation,
-                set(),
-            ).add(situation)
-
-        self.etats = set(
-            Type_Etat_Materiel.objects.values_list(
-                "code_type_etat_materiel",
                 flat=True,
             )
         )
@@ -106,7 +89,7 @@ class SituationAffectationCsvValidator:
         )
 
         # -----------------------------------------------------
-        # Headers
+        # Validate headers
         # -----------------------------------------------------
 
         try:
@@ -129,7 +112,7 @@ class SituationAffectationCsvValidator:
             return report
 
         # -----------------------------------------------------
-        # Rows
+        # Validate every CSV row
         # -----------------------------------------------------
 
         for line_number, row in enumerate(reader, start=2):
@@ -159,6 +142,21 @@ class SituationAffectationCsvValidator:
 
             if len(report.errors) > errors_before:
                 report.increment_invalid()
+                continue
+
+            code_site = cleaned.get("code_site")
+
+            if code_site in self.existing_sites:
+
+                report.increment_skipped()
+
+                report.add_warning(
+                    line=line_number,
+                    field="code_site",
+                    value=code_site,
+                    message="Ce site existe déjà dans la base de données. Ligne ignorée.",
+                )
+
                 continue
 
             self.validate_business_rules(
@@ -193,125 +191,87 @@ class SituationAffectationCsvValidator:
         )
 
         # -----------------------------------------------------
-        # Material
+        # Duplicate inside current CSV
         # -----------------------------------------------------
 
-        if row["code_materiel"] not in self.materials:
+        code_site = row.get("code_site")
 
-            report.add_error(
-                line=line_number,
-                field="code_materiel",
-                value=row["code_materiel"],
-                message=(
-                    f"Le matériel '{row['code_materiel']}' n'existe pas."
-                ),
-            )
+        if code_site is not None:
 
-        # -----------------------------------------------------
-        # Site
-        # -----------------------------------------------------
+            if code_site in self.seen_sites:
 
-        if row["code_site"] not in self.sites:
+                report.add_error(
+                    line=line_number,
+                    field="code_site",
+                    value=code_site,
+                    message=(
+                        "Doublon dans le fichier CSV. "
+                        f"Première occurrence ligne "
+                        f"{self.seen_sites[code_site]}."
+                    ),
+                )
 
-            report.add_error(
-                line=line_number,
-                field="code_site",
-                value=row["code_site"],
-                message=(
-                    f"Le site '{row['code_site']}' n'existe pas."
-                ),
-            )
+            else:
+
+                self.seen_sites[code_site] = line_number
 
         # -----------------------------------------------------
-        # Affectation type
+        # Filiale
         # -----------------------------------------------------
 
-        if row["code_type_affectation"] not in self.type_affectations:
-
-            report.add_error(
-                line=line_number,
-                field="code_type_affectation",
-                value=row["code_type_affectation"],
-                message=(
-                    f"Le type d'affectation "
-                    f"'{row['code_type_affectation']}' n'existe pas."
-                ),
-            )
-
-        # -----------------------------------------------------
-        # Situation type
-        # -----------------------------------------------------
-
-        allowed = self.type_situations.get(
-            row["code_type_affectation"]
-        )
+        code_filiale = row.get("code_filiale")
 
         if (
-            allowed is not None
-            and row["code_type_situation"] not in allowed
+            code_filiale is not None
+            and code_filiale not in self.filiales
         ):
 
             report.add_error(
                 line=line_number,
-                field="code_type_situation",
-                value=row["code_type_situation"],
-                message=(
-                    f"Le type de situation "
-                    f"'{row['code_type_situation']}' "
-                    f"n'est pas autorisé pour le type "
-                    f"d'affectation "
-                    f"'{row['code_type_affectation']}'."
-                ),
+                field="code_filiale",
+                value=code_filiale,
+                message="Filiale inexistante.",
             )
 
         # -----------------------------------------------------
-        # Material state
+        # Division
         # -----------------------------------------------------
 
+        code_division = row.get("code_division")
+
         if (
-            row["code_type_etat_materiel"]
-            not in self.etats
+            code_division
+            and code_division not in self.divisions
         ):
 
             report.add_error(
                 line=line_number,
-                field="code_type_etat_materiel",
-                value=row["code_type_etat_materiel"],
-                message=(
-                    f"L'état matériel "
-                    f"'{row['code_type_etat_materiel']}' "
-                    f"n'existe pas."
-                ),
+                field="code_division",
+                value=code_division,
+                message="Division inexistante.",
             )
 
         # -----------------------------------------------------
-        # Duplicate
+        # Prepare foreign keys
         # -----------------------------------------------------
 
-        duplicate_key = (
-            row["code_materiel"],
-            row["code_site"],
-            row["date_affectation"],
-            row["code_type_affectation"],
-            row["code_type_situation"],
-            row["code_type_etat_materiel"],
-            row["date_situation"],
-        )
+        if "code_filiale" in row:
+            row["code_filiale_id"] = row.pop("code_filiale")
 
-        if duplicate_key in self.seen_rows:
-
-            report.add_error(
-                line=line_number,
-                message=(
-                    "Doublon dans le fichier CSV. "
-                    f"Première occurrence ligne "
-                    f"{self.seen_rows[duplicate_key]}."
-                ),
-            )
-
+        if row.get("code_division"):
+            row["code_division_id"] = row.pop("code_division")
         else:
+            row.pop("code_division", None)
 
-            self.seen_rows[duplicate_key] = line_number
+        # -----------------------------------------------------
+        # Django validation
+        # -----------------------------------------------------
+
+        self.validate_model(
+            row=row,
+            report=report,
+            line_number=line_number,
+        )
 
     # ---------------------------------------------------------
     # Warnings
@@ -332,3 +292,57 @@ class SituationAffectationCsvValidator:
                 value=None,
                 message="La valeur est_bloque n'est pas renseignée.",
             )
+
+        if row.get("jour_cloture_mouv_RH_paie") is None:
+
+            report.add_warning(
+                line=line_number,
+                field="jour_cloture_mouv_RH_paie",
+                value=None,
+                message="Le jour de clôture RH/Paie n'est pas renseigné.",
+            )
+
+    # ---------------------------------------------------------
+    # Django model validation
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def validate_model(
+        row,
+        report,
+        line_number,
+    ):
+
+        try:
+
+            obj = Site(**row)
+
+            obj.full_clean(
+                validate_unique=False,
+            )
+
+        except DjangoValidationError as exc:
+
+            if hasattr(exc, "message_dict"):
+
+                for field_name, messages in exc.message_dict.items():
+
+                    for message in messages:
+
+                        report.add_error(
+                            line=line_number,
+                            field=field_name,
+                            value=row.get(field_name),
+                            message=str(message),
+                        )
+
+            else:
+
+                for message in exc.messages:
+
+                    report.add_error(
+                        line=line_number,
+                        field=None,
+                        value=None,
+                        message=str(message),
+                    )

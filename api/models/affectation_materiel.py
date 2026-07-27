@@ -31,7 +31,7 @@ class Affectation_Materiel(models.Model):
     )
     date_affectation = models.DateTimeField()
     date_fin_affectation = models.DateTimeField(null=True,blank=True)
-    nbr_jours_affectation = models.IntegerField()
+    nbr_jours_affectation = models.IntegerField(default=0)
     date_debut_affectation = models.DateTimeField(null=True,blank=True)
     prenable = models.BooleanField(default=False)
     est_bloque = models.BooleanField(default=False)

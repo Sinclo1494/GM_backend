@@ -42,10 +42,9 @@ class SituationAffectationCsvImporter:
     def __init__(
         self,
         validation_id: str,
-        filiale,
     ):
         self.validation_id = validation_id
-        self.filiale = filiale
+        self.filiale = None
 
         # Existing data
         self.materials = {}
@@ -250,7 +249,7 @@ class SituationAffectationCsvImporter:
                 row["code_materiel"]
             ],
             code_site_id=row["code_site"],
-            code_filiale_mere=self.filiale,
+            code_filiale_mere_id=self.filiale,
             date_affectation=row["date_affectation"],
             est_bloque=row.get("est_bloque", False),
         )
@@ -353,6 +352,12 @@ class SituationAffectationCsvImporter:
 
         rows = payload.get("rows", [])
         summary = payload.get("summary", {})
+        self.filiale = payload.get("filiale")
+
+        if self.filiale is None:
+            raise SituationAffectationImportError(
+                "La filiale est absente des données de validation."
+            )
 
         if not rows:
 

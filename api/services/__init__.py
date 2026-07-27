@@ -16,3 +16,5 @@ from .sous_famille_csv_import import SousFamilleCsvValidator
 from .sous_famille_csv_import import SousFamilleCsvImporter
 from .situation_affectation_csv_import import SituationAffectationCsvValidator
 from .situation_affectation_csv_import import SituationAffectationCsvImporter
+from .site_csv_import import SiteCsvValidator
+from .site_csv_import import SiteCsvImporter

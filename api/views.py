@@ -14,6 +14,7 @@ from .services.marque_csv_import.marque_schema import MARQUE_MATERIEL_SCHEMA
 from .services.type_marque_csv_import.type_marque_schema import TYPE_MARQUE_SCHEMA
 from .services.sous_famille_csv_import.sous_famille_schema import SOUS_FAMILLE_SCHEMA
 from .services.situation_affectation_csv_import.situation_affectation_schema import SITUATION_AFFECTATION_SCHEMA
+from .services.site_csv_import.site_schema import SITE_SCHEMA
 from .services.validation_cache import ValidationCache
 from .services.pointage_csv_import.csv_importer import (
     PointageCsvImporter,
@@ -50,6 +51,12 @@ from .services.situation_affectation_csv_import.csv_importer import (
     SituationAffectationImportError
 )
 
+from .services.site_csv_import.csv_importer import (
+    SiteCsvImporter,
+    SiteValidationExpiredError,
+    SiteImportError
+)
+
 from api.services import (
     PointageImportService,
     SituationImportService,
@@ -62,7 +69,8 @@ from api.services import (
     MarqueCsvValidator,
     TypeMarqueCsvValidator,
     SousFamilleCsvValidator,
-    SituationAffectationCsvValidator
+    SituationAffectationCsvValidator,
+    SiteCsvValidator,
 )
 
 
@@ -1273,7 +1281,7 @@ class ImportSousFamilleView(APIView):
         )
 
 
-class ValidateAffectationSituationView(APIView):
+class ValidateSituationAffectationView(APIView):
 
     parser_classes = [MultiPartParser]
 
@@ -1405,7 +1413,7 @@ class ValidateAffectationSituationView(APIView):
         )
 
 
-class ImportAffectationSituationView(APIView):
+class ImportSituationAffectationView(APIView):
 
     parser_classes = [JSONParser]
 
@@ -1427,21 +1435,6 @@ class ImportAffectationSituationView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # -----------------------------------------------------
-        # 2. Filiale
-        # -----------------------------------------------------
-
-        filiale = request.data.get("filiale")
-
-        if not filiale:
-
-            return Response(
-                {
-                    "success": False,
-                    "message": "La filiale est obligatoire.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         # -----------------------------------------------------
         # 3. Import validated rows
@@ -1451,7 +1444,6 @@ class ImportAffectationSituationView(APIView):
 
             importer = SituationAffectationCsvImporter(
                 validation_id=validation_id,
-                filiale=filiale,
             )
 
             result = importer.import_data()
@@ -1491,6 +1483,199 @@ class ImportAffectationSituationView(APIView):
 
         # -----------------------------------------------------
         # 4. Successful import
+        # -----------------------------------------------------
+
+        return Response(
+            {
+                **result,
+                "message": "Import terminé avec succès.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+class ValidateSiteView(APIView):
+
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+
+        # -----------------------------------------------------
+        # 1. Uploaded file
+        # -----------------------------------------------------
+
+        file = request.FILES.get("file")
+
+        if file is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun fichier reçu.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 2. Column mapping
+        # -----------------------------------------------------
+
+        raw_mapping = request.POST.get("mapping")
+
+        if not raw_mapping:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            mapping = json.loads(raw_mapping)
+
+        except (json.JSONDecodeError, TypeError):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(mapping, dict):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 3. Validate CSV
+        # -----------------------------------------------------
+
+        try:
+
+            validator = SiteCsvValidator(
+                uploaded_file=file,
+                schema=SITE_SCHEMA,
+                mapping=mapping,
+            )
+
+            report = validator.validate()
+
+        except Exception as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 4. Build response
+        # -----------------------------------------------------
+
+        response_data = report.to_dict()
+
+        # -----------------------------------------------------
+        # 5. Cache successful validation
+        # -----------------------------------------------------
+
+        if report.success:
+
+            validation_id = ValidationCache.save(
+                report=report,
+                filiale="",
+            )
+
+            response_data["validation_id"] = validation_id
+
+        # -----------------------------------------------------
+        # 6. Return validation result
+        # -----------------------------------------------------
+
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK,
+        )
+
+class ImportSiteView(APIView):
+
+    parser_classes = [JSONParser]
+
+    def post(self, request):
+
+        # -----------------------------------------------------
+        # 1. Validation ID
+        # -----------------------------------------------------
+
+        validation_id = request.data.get("validation_id")
+
+        if not validation_id:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "L'identifiant de validation est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 2. Import validated rows
+        # -----------------------------------------------------
+
+        try:
+
+            importer = SiteCsvImporter(
+                validation_id=validation_id,
+            )
+
+            result = importer.import_data()
+
+        except SiteValidationExpiredError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_410_GONE,
+            )
+
+        except SiteImportError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        except Exception:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Une erreur inattendue est survenue "
+                        "pendant l'import."
+                    ),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # -----------------------------------------------------
+        # 3. Successful import
         # -----------------------------------------------------
 
         return Response(

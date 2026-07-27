@@ -180,7 +180,7 @@ class SituationMaterielAdmin(ImportExportModelAdmin):
         "created_at",
         "updated_at",
     )
-    search_fields = ("id_situation",)
+    search_fields = ("id_situation","affectation_id__code_materiel__code_materiel")
     list_filter = ("est_bloque",)
 
 class EntrepriseAdmin(ImportExportModelAdmin):

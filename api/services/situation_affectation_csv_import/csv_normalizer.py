@@ -33,6 +33,26 @@ class CsvNormalizer:
         return value
 
     @staticmethod
+    def normalize_code(value: str, length: int = 2) -> str:
+        """
+        Normalize code values by left-padding with zeros.
+
+        Examples:
+            "3"   -> "03"
+            "03"  -> "03"
+            "12"  -> "12"
+            ""    -> ""
+            None  -> ""
+        """
+
+        if not value:
+            return ""
+
+        value = value.strip()
+
+        return value.zfill(length)
+
+    @staticmethod
     def normalize(uploaded_file, schema, mapping, filiale=None):
 
         # ---------------------------------------------------------
@@ -206,8 +226,25 @@ class CsvNormalizer:
                                 normalized_row[index]
                             )
                         )
+                # -------------------------------------------------
+                # Normalize codes
+                # -------------------------------------------------
 
+                for field_name in (
+                    "code_type_affectation",
+                    "code_type_situation",
+                    "code_type_etat_materiel",
+                ):
+                    if field_name in expected_headers:
+                        index = expected_headers.index(field_name)
+                        normalized_row[index] = (
+                            CsvNormalizer.normalize_code(
+                                normalized_row[index]
+                            )
+                        )
                 writer.writerow(normalized_row)
+
+                
 
         except csv.Error as exc:
             raise CsvNormalizationError(
