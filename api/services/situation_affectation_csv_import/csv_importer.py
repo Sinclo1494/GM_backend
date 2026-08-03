@@ -1,6 +1,9 @@
 import re
 
-from django.db import IntegrityError, transaction
+from django.db import (
+    IntegrityError,
+    transaction,
+)
 from django.db.models import Max
 
 from api.models import (
@@ -13,22 +16,23 @@ from api.models import (
 
 from ..validation_cache import ValidationCache
 
-
 BATCH_SIZE = 5000
 
 
 # ---------------------------------------------------------
-# Import exceptions
+# Exceptions
 # ---------------------------------------------------------
 
 
 class SituationAffectationValidationExpiredError(Exception):
     """Validation does not exist or has expired."""
+
     pass
 
 
 class SituationAffectationImportError(Exception):
-    """Unexpected database error during SituationAffectation import."""
+    """Unexpected database error during import."""
+
     pass
 
 
@@ -46,17 +50,48 @@ class SituationAffectationCsvImporter:
         self.validation_id = validation_id
         self.filiale = None
 
-        # Existing data
-        self.materials = {}
-        self.affectations = {}
-        self.last_situations = {}
-
+        # -------------------------------------------------
         # Reference tables
+        # -------------------------------------------------
+
+        self.materials = {}
+
         self.type_situations = {}
+
         self.type_etats = {}
 
+        # -------------------------------------------------
+        # Existing affectations
+        #
+        # (
+        #     code_materiel,
+        #     code_site,
+        #     date_affectation,
+        # ) -> Affectation_Materiel
+        # -------------------------------------------------
+
+        self.affectations = {}
+
+        # -------------------------------------------------
+        # Existing situations
+        #
+        # (
+        #     affectation_id,
+        #     code_type_affectation,
+        #     code_type_situation,
+        #     code_type_etat,
+        #     date_situation,
+        # )
+        # -------------------------------------------------
+
+        self.situations = set()
+
+        # -------------------------------------------------
         # Sequences
+        # -------------------------------------------------
+
         self.last_affectation_numbers = {}
+
         self.last_situation_number = 0
 
     # ---------------------------------------------------------
@@ -65,73 +100,63 @@ class SituationAffectationCsvImporter:
 
     def load_cache(self):
 
-        # -----------------------------------------------------
-        # Grand matériel
-        # -----------------------------------------------------
+        # -------------------------------------------------
+        # Materials
+        # -------------------------------------------------
 
-        self.materials = {
-            gm.code_materiel: gm
-            for gm in Grand_Materiel.objects.all()
-        }
+        self.materials = {gm.code_materiel: gm for gm in Grand_Materiel.objects.all()}
 
-        # -----------------------------------------------------
-        # Type Situation
-        # (code_type_affectation, code_type_situation)
-        # -----------------------------------------------------
+        # -------------------------------------------------
+        # Type situations
+        # -------------------------------------------------
 
         self.type_situations = {
             (
-                obj.code_type_affectation_id,
-                obj.code_type_situation,
-            ): obj
-            for obj in Type_Situation.objects.select_related(
-                "code_type_affectation"
-            )
+                ts.code_type_affectation_id,
+                ts.code_type_situation,
+            ): ts
+            for ts in Type_Situation.objects.select_related("code_type_affectation")
         }
 
-        # -----------------------------------------------------
-        # Etat matériel
-        # -----------------------------------------------------
+        # -------------------------------------------------
+        # Material states
+        # -------------------------------------------------
 
         self.type_etats = {
-            obj.code_type_etat_materiel: obj
-            for obj in Type_Etat_Materiel.objects.all()
+            etat.code_type_etat_materiel: etat
+            for etat in Type_Etat_Materiel.objects.all()
         }
 
-        # -----------------------------------------------------
+        # -------------------------------------------------
         # Existing affectations
-        # -----------------------------------------------------
+        # -------------------------------------------------
 
         self.affectations.clear()
         self.last_affectation_numbers.clear()
 
-        queryset = (
-            Affectation_Materiel.objects
-            .select_related("code_materiel")
-            .only(
-                "id",
-                "code_affectation",
-                "date_affectation",
-                "code_site_id",
-                "code_materiel__code_materiel",
-            )
+        queryset = Affectation_Materiel.objects.select_related("code_materiel").only(
+            "id",
+            "code_affectation",
+            "date_affectation",
+            "code_site_id",
+            "code_materiel__code_materiel",
         )
 
-        for aff in queryset:
+        for affectation in queryset:
 
-            material = aff.code_materiel.code_materiel
+            material = affectation.code_materiel.code_materiel
 
-            self.affectations[
-                (
-                    material,
-                    aff.code_site_id,
-                    aff.date_affectation,
-                )
-            ] = aff
+            key = (
+                material,
+                affectation.code_site_id,
+                affectation.date_affectation,
+            )
+
+            self.affectations[key] = affectation
 
             match = re.search(
                 r"\.(\d+)$",
-                aff.code_affectation or "",
+                affectation.code_affectation or "",
             )
 
             if not match:
@@ -142,48 +167,54 @@ class SituationAffectationCsvImporter:
             if number > self.last_affectation_numbers.get(material, 0):
                 self.last_affectation_numbers[material] = number
 
-        # -----------------------------------------------------
-        # Latest situation for every affectation
-        # -----------------------------------------------------
+        # -------------------------------------------------
+        # Existing situations
+        # -------------------------------------------------
 
-        self.last_situations.clear()
+        self.situations.clear()
 
-        queryset = (
-            Situation_Materiel.objects
-            .select_related(
-                "affectation_id",
-                "type_situation_id",
-                "type_situation_id__code_type_affectation",
-                "code_type_etat_materiel",
-            )
-            .order_by(
-                "affectation_id",
-                "-date_situation",
-                "-id",
-            )
+        queryset = Situation_Materiel.objects.select_related(
+            "affectation_id",
+            "type_situation_id",
+            "type_situation_id__code_type_affectation",
+            "code_type_etat_materiel",
+        ).only(
+            "affectation_id",
+            "date_situation",
+            "type_situation_id__code_type_affectation",
+            "type_situation_id__code_type_situation",
+            "code_type_etat_materiel",
         )
 
         for situation in queryset:
 
-            affectation_id = situation.affectation_id_id
+            key = (
+                situation.affectation_id_id,
+                situation.type_situation_id.code_type_affectation_id,
+                situation.type_situation_id.code_type_situation,
+                situation.code_type_etat_materiel.code_type_etat_materiel,
+                situation.date_situation,
+            )
 
-            if affectation_id not in self.last_situations:
-                self.last_situations[affectation_id] = situation
+            self.situations.add(key)
 
-        # -----------------------------------------------------
+        # -------------------------------------------------
         # Last situation sequence
-        # -----------------------------------------------------
+        # -------------------------------------------------
 
-        latest = (
-            Situation_Materiel.objects.aggregate(
-                value=Max("id_situation")
-            )["value"]
-        )
+        latest = Situation_Materiel.objects.aggregate(value=Max("id_situation"))[
+            "value"
+        ]
 
         self.last_situation_number = 0
 
         if latest:
-            match = re.search(r"(\d+)$", str(latest))
+
+            match = re.search(
+                r"(\d+)$",
+                str(latest),
+            )
+
             if match:
                 self.last_situation_number = int(match.group(1))
 
@@ -195,10 +226,14 @@ class SituationAffectationCsvImporter:
         self,
         code_materiel,
     ):
-        number = self.last_affectation_numbers.get(
-            code_materiel,
-            0,
-        ) + 1
+
+        number = (
+            self.last_affectation_numbers.get(
+                code_materiel,
+                0,
+            )
+            + 1
+        )
 
         self.last_affectation_numbers[code_materiel] = number
 
@@ -209,10 +244,6 @@ class SituationAffectationCsvImporter:
         self.last_situation_number += 1
 
         return f"{self.last_situation_number:06d}"
-
-    # ---------------------------------------------------------
-    # Affectation
-    # ---------------------------------------------------------
 
     def get_or_create_affectation(
         self,
@@ -227,31 +258,19 @@ class SituationAffectationCsvImporter:
 
         affectation = self.affectations.get(key)
 
-        if affectation:
-            return affectation
-
-        affectation = self.create_affectation(row)
-
-        self.affectations[key] = affectation
-
-        return affectation
-
-    def create_affectation(
-        self,
-        row,
-    ):
+        if affectation is not None:
+            return affectation, False
 
         affectation = Affectation_Materiel(
-            code_affectation=self.next_code_affectation(
-                row["code_materiel"]
-            ),
-            code_materiel=self.materials[
-                row["code_materiel"]
-            ],
+            code_affectation=self.next_code_affectation(row["code_materiel"]),
+            code_materiel=self.materials[row["code_materiel"]],
             code_site_id=row["code_site"],
             code_filiale_mere_id=self.filiale,
             date_affectation=row["date_affectation"],
-            est_bloque=row.get("est_bloque", False),
+            est_bloque=row.get(
+                "est_bloque",
+                False,
+            ),
         )
 
         affectation.full_clean(
@@ -260,79 +279,9 @@ class SituationAffectationCsvImporter:
 
         affectation.save()
 
-        return affectation
+        self.affectations[key] = affectation
 
-    # ---------------------------------------------------------
-    # Situation
-    # ---------------------------------------------------------
-
-    @staticmethod
-    def same_situation(
-        last,
-        row,
-    ):
-        """
-        Returns True when the last recorded situation already matches
-        the CSV row.
-        """
-
-        if last is None:
-            return False
-
-        return (
-            last.type_situation_id.code_type_affectation_id
-            == row["code_type_affectation"]
-            and
-            last.type_situation_id.code_type_situation
-            == row["code_type_situation"]
-            and
-            last.code_type_etat_materiel_id
-            == row["code_type_etat_materiel"]
-        )
-
-    def create_situation(
-        self,
-        affectation,
-        row,
-    ):
-
-        type_situation = self.type_situations[
-            (
-                row["code_type_affectation"],
-                row["code_type_situation"],
-            )
-        ]
-
-        etat = self.type_etats[
-            row["code_type_etat_materiel"]
-        ]
-
-        situation = Situation_Materiel(
-            id_situation=self.next_id_situation(),
-            affectation_id=affectation,
-            type_situation_id=type_situation,
-            code_type_etat_materiel=etat,
-            date_situation=(
-                row.get("date_situation")
-                or row["date_affectation"]
-            ),
-            est_bloque=row.get("est_bloque", False),
-            date_modification=row.get(
-                "date_modification"
-            ),
-        )
-
-        situation.full_clean(
-            validate_unique=False,
-        )
-
-        situation.save()
-
-        self.last_situations[
-            affectation.id
-        ] = situation
-
-        return situation
+        return affectation, True
 
     # ---------------------------------------------------------
     # Import
@@ -341,7 +290,7 @@ class SituationAffectationCsvImporter:
     def import_data(self):
 
         payload = ValidationCache.get(
-            self.validation_id
+            self.validation_id,
         )
 
         if payload is None:
@@ -352,6 +301,7 @@ class SituationAffectationCsvImporter:
 
         rows = payload.get("rows", [])
         summary = payload.get("summary", {})
+
         self.filiale = payload.get("filiale")
 
         if self.filiale is None:
@@ -362,7 +312,7 @@ class SituationAffectationCsvImporter:
         if not rows:
 
             ValidationCache.delete(
-                self.validation_id
+                self.validation_id,
             )
 
             return {
@@ -385,35 +335,42 @@ class SituationAffectationCsvImporter:
 
                 for row in rows:
 
-                    affectation_key = (
-                        row["code_materiel"],
-                        row["code_site"],
-                        row["date_affectation"],
+                    # -----------------------------------------
+                    # Find or create affectation
+                    # -----------------------------------------
+
+                    affectation, created = self.get_or_create_affectation(
+                        row,
                     )
 
-                    is_new_affectation = (
-                        affectation_key
-                        not in self.affectations
-                    )
-
-                    affectation = (
-                        self.get_or_create_affectation(
-                            row
-                        )
-                    )
-
-                    if is_new_affectation:
+                    if created:
                         imported_affectations += 1
 
-                    last = self.last_situations.get(
-                        affectation.id
+                    # -----------------------------------------
+                    # Situation business key
+                    # -----------------------------------------
+
+                    situation_key = (
+                        affectation.id,
+                        row["code_type_affectation"],
+                        row["code_type_situation"],
+                        row["code_type_etat_materiel"],
+                        row["date_situation"],
                     )
 
-                    if self.same_situation(
-                        last,
-                        row,
-                    ):
+                    # -----------------------------------------
+                    # Already imported ?
+                    # -----------------------------------------
+
+                    if situation_key in self.situations:
                         continue
+
+                    if situation_key in self.situations:
+                        continue
+
+                    # -----------------------------------------
+                    # Resolve foreign keys
+                    # -----------------------------------------
 
                     type_situation = self.type_situations[
                         (
@@ -422,39 +379,49 @@ class SituationAffectationCsvImporter:
                         )
                     ]
 
-                    etat = self.type_etats[
-                        row["code_type_etat_materiel"]
-                    ]
+                    etat = self.type_etats[row["code_type_etat_materiel"]]
+
+                    # -----------------------------------------
+                    # Build situation
+                    # -----------------------------------------
 
                     situation = Situation_Materiel(
                         id_situation=self.next_id_situation(),
                         affectation_id=affectation,
                         type_situation_id=type_situation,
                         code_type_etat_materiel=etat,
-                        date_situation=(
-                            row.get("date_situation")
-                            or row["date_affectation"]
-                        ),
+                        date_situation=row["date_situation"],
                         est_bloque=row.get(
                             "est_bloque",
                             False,
                         ),
                         date_modification=row.get(
-                            "date_modification"
+                            "date_modification",
                         ),
                     )
 
                     situation.full_clean(
-                        validate_unique=False
+                        validate_unique=False,
                     )
 
-                    batch.append(situation)
+                    batch.append(
+                        situation,
+                    )
 
-                    self.last_situations[
-                        affectation.id
-                    ] = situation
+                    # -----------------------------------------
+                    # Update cache immediately
+                    # Prevent duplicates inside the same import
+                    # -----------------------------------------
+
+                    self.situations.add(
+                        situation_key,
+                    )
 
                     imported_situations += 1
+
+                    # -----------------------------------------
+                    # Flush batch
+                    # -----------------------------------------
 
                     if len(batch) >= BATCH_SIZE:
 
@@ -464,6 +431,9 @@ class SituationAffectationCsvImporter:
                         )
 
                         batch.clear()
+                # -----------------------------------------
+                # Flush remaining rows
+                # -----------------------------------------
 
                 if batch:
 
@@ -485,9 +455,11 @@ class SituationAffectationCsvImporter:
                 f"Erreur pendant l'import : {exc}"
             ) from exc
 
-        ValidationCache.delete(
-            self.validation_id
-        )
+        finally:
+
+            ValidationCache.delete(
+                self.validation_id,
+            )
 
         return {
             "success": True,

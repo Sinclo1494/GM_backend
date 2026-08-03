@@ -75,7 +75,7 @@ SITUATION_AFFECTATION_SCHEMA = CsvSchema([
         index=4,
         name="date_affectation",
         required=True,
-        validator=date(
+        validator=datetime_value(
             "%Y-%m-%d %H:%M:%S",
             "%Y-%m-%d %H:%M",
             "%Y-%m-%d",
@@ -136,8 +136,8 @@ SITUATION_AFFECTATION_SCHEMA = CsvSchema([
     CsvField(
         index=8,
         name="date_situation",
-        required=False,
-        validator=date(
+        required=True,
+        validator=datetime_value(
             "%Y-%m-%d %H:%M:%S",
             "%Y-%m-%d %H:%M",
             "%Y-%m-%d",

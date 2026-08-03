@@ -202,9 +202,7 @@ class SituationAffectationCsvValidator:
                 line=line_number,
                 field="code_materiel",
                 value=row["code_materiel"],
-                message=(
-                    f"Le matériel '{row['code_materiel']}' n'existe pas."
-                ),
+                message=(f"Le matériel '{row['code_materiel']}' n'existe pas."),
             )
 
         # -----------------------------------------------------
@@ -217,9 +215,7 @@ class SituationAffectationCsvValidator:
                 line=line_number,
                 field="code_site",
                 value=row["code_site"],
-                message=(
-                    f"Le site '{row['code_site']}' n'existe pas."
-                ),
+                message=(f"Le site '{row['code_site']}' n'existe pas."),
             )
 
         # -----------------------------------------------------
@@ -242,14 +238,9 @@ class SituationAffectationCsvValidator:
         # Situation type
         # -----------------------------------------------------
 
-        allowed = self.type_situations.get(
-            row["code_type_affectation"]
-        )
+        allowed = self.type_situations.get(row["code_type_affectation"])
 
-        if (
-            allowed is not None
-            and row["code_type_situation"] not in allowed
-        ):
+        if allowed is not None and row["code_type_situation"] not in allowed:
 
             report.add_error(
                 line=line_number,
@@ -268,10 +259,7 @@ class SituationAffectationCsvValidator:
         # Material state
         # -----------------------------------------------------
 
-        if (
-            row["code_type_etat_materiel"]
-            not in self.etats
-        ):
+        if row["code_type_etat_materiel"] not in self.etats:
 
             report.add_error(
                 line=line_number,

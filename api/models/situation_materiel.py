@@ -6,7 +6,7 @@ User = get_user_model()
 
 
 class Situation_Materiel(models.Model):
-    id_situation = models.CharField(max_length=100, unique=True)
+    id_situation = models.CharField(max_length=100, unique=True,null=True, blank=True)
     affectation_id = models.ForeignKey(
         "Affectation_Materiel",
         on_delete=models.PROTECT,
@@ -35,4 +35,4 @@ class Situation_Materiel(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return self.id_situation
+        return str(self.id)
