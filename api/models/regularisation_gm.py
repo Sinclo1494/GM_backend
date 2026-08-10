@@ -15,7 +15,7 @@ class Regularisation_GM(models.Model):
     )
     mmaa = models.DateField()
     montant_regularisation = models.DecimalField(max_digits=20, decimal_places=4)
-    observation = models.TextField()
+    observation = models.TextField(blank=True,null=True)
     est_bloque = models.BooleanField(default=False)
     user_id = models.ForeignKey(
         User,

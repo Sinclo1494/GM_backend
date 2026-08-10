@@ -15,6 +15,7 @@ from .services.type_marque_csv_import.type_marque_schema import TYPE_MARQUE_SCHE
 from .services.sous_famille_csv_import.sous_famille_schema import SOUS_FAMILLE_SCHEMA
 from .services.situation_affectation_csv_import.situation_affectation_schema import SITUATION_AFFECTATION_SCHEMA
 from .services.site_csv_import.site_schema import SITE_SCHEMA
+from .services.regularisation_csv_import.regularisation_schema import REGULARISATION_GM_SCHEMA
 from .services.validation_cache import ValidationCache
 from .services.pointage_csv_import.csv_importer import (
     PointageCsvImporter,
@@ -57,6 +58,12 @@ from .services.site_csv_import.csv_importer import (
     SiteImportError
 )
 
+from .services.regularisation_csv_import.csv_importer import (
+    RegularisationGMCsvImporter,
+    RegularisationGMValidationExpiredError,
+    RegularisationGMImportError
+)
+
 from api.services import (
     PointageImportService,
     SituationImportService,
@@ -71,6 +78,7 @@ from api.services import (
     SousFamilleCsvValidator,
     SituationAffectationCsvValidator,
     SiteCsvValidator,
+    RegularisationGMCsvValidator,
 )
 
 
@@ -1482,8 +1490,170 @@ class ImportSituationAffectationView(APIView):
             )
 
         # -----------------------------------------------------
-        # 4. Successful import
+        # 3. Successful import
         # -----------------------------------------------------
+
+        return Response(
+            {
+                **result,
+                "message": "Import terminé avec succès.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ValidateRegularisationGMView(APIView):
+
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+
+        file = request.FILES.get("file")
+
+        if file is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun fichier reçu.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filiale = request.POST.get("filiale")
+
+        if filiale:
+            filiale = filiale.strip()
+
+        raw_mapping = request.POST.get("mapping")
+
+        if not raw_mapping:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            mapping = json.loads(raw_mapping)
+
+        except (json.JSONDecodeError, TypeError):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(mapping, dict):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            validator = RegularisationGMCsvValidator(
+                uploaded_file=file,
+                schema=REGULARISATION_GM_SCHEMA,
+                mapping=mapping,
+                filiale=filiale,
+            )
+
+            report = validator.validate()
+
+        except Exception as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        response_data = report.to_dict()
+
+        if report.success:
+
+            validation_id = ValidationCache.save(
+                report=report,
+                filiale=filiale,
+            )
+
+            response_data["validation_id"] = validation_id
+
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class ImportRegularisationGMView(APIView):
+
+    parser_classes = [JSONParser]
+
+    def post(self, request):
+
+        validation_id = request.data.get("validation_id")
+
+        if not validation_id:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "L'identifiant de validation est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            importer = RegularisationGMCsvImporter(
+                validation_id=validation_id,
+            )
+
+            result = importer.import_data()
+
+        except RegularisationGMValidationExpiredError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_410_GONE,
+            )
+
+        except RegularisationGMImportError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        except Exception:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Une erreur inattendue est survenue "
+                        "pendant l'import."
+                    ),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         return Response(
             {

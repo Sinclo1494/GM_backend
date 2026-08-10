@@ -18,3 +18,5 @@ from .situation_affectation_csv_import import SituationAffectationCsvValidator
 from .situation_affectation_csv_import import SituationAffectationCsvImporter
 from .site_csv_import import SiteCsvValidator
 from .site_csv_import import SiteCsvImporter
+from .regularisation_csv_import import RegularisationGMCsvValidator
+from .regularisation_csv_import import RegularisationGMCsvImporter

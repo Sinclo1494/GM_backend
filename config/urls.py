@@ -40,6 +40,8 @@ from api.views import (
     ImportSituationAffectationView,
     ValidateSiteView,
     ImportSiteView,
+    ValidateRegularisationGMView,
+    ImportRegularisationGMView,
     )
 
 from rest_framework_simplejwt.views import (
@@ -90,6 +92,8 @@ urlpatterns = [
     path('api/situation-affectation-import/', ImportSituationAffectationView.as_view(), name='import_situation_affectation'),
     path('api/site-validate/', ValidateSiteView.as_view(), name='validate_site'),
     path('api/site-import/', ImportSiteView.as_view(), name='import_site'),
+    path('api/regularisation-gm-validate/', ValidateRegularisationGMView.as_view(), name='validate_regularisation_gm'),
+    path('api/regularisation-gm-import/', ImportRegularisationGMView.as_view(), name='import_regularisation_gm'),
     path('api/pointage-upload/', pointage_upload_view),
     path('api/situation-upload/', situation_upload_view),
     path('api/aqtp/', TP_AQ_API_View.as_view()),
