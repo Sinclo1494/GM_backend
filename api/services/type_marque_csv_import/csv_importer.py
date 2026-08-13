@@ -63,6 +63,7 @@ class TypeMarqueCsvImporter:
 
         rows = payload.get("rows", [])
         summary = payload.get("summary", {})
+        filename = payload.get("filename", "")
 
         # -----------------------------------------------------
         # 2. Build Django objects
@@ -89,6 +90,7 @@ class TypeMarqueCsvImporter:
             return {
                 "success": True,
                 "imported_rows": 0,
+                "filename": filename,
                 "validation_summary": summary,
             }
 
@@ -133,5 +135,6 @@ class TypeMarqueCsvImporter:
         return {
             "success": True,
             "imported_rows": len(objects),
+            "filename": filename,
             "validation_summary": summary,
         }

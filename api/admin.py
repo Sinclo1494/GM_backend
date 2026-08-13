@@ -19,6 +19,7 @@ from .models import (
     Regularisation_GM,
     Regularisation_Mois_GM2,
     Site,
+    Journal,
 )
 from import_export.admin import ImportExportModelAdmin
 from .resources import (
@@ -362,3 +363,4 @@ admin.site.register(Pointage, PointageAdmin)
 admin.site.register(Regularisation_GM, RegularisationGMAdmin)
 admin.site.register(Regularisation_Mois_GM2, RegularisationMoisGM2Admin)
 admin.site.register(Site, SiteAdmin)
+admin.site.register(Journal)

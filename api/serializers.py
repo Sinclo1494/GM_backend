@@ -18,6 +18,20 @@ from .models import Pointage
 from .models import Regularisation_GM
 from .models import Regularisation_Mois_GM2
 from .models import Site
+from .models import Journal
+
+
+class JournalSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
+
+    def get_user(self, obj):
+        if obj.user:
+            return {"id": obj.user.id, "username": obj.user.username}
+        return None
+
+    class Meta:
+        model = Journal
+        fields = "__all__"
 
 
 class GrandMaterielSerializer(serializers.ModelSerializer):

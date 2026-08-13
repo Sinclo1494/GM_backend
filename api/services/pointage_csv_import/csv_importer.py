@@ -57,6 +57,7 @@ class PointageCsvImporter:
         rows = payload.get("rows", [])
         filiale = payload.get("filiale")
         summary = payload.get("summary", {})
+        filename = payload.get("filename", "")
 
         # -----------------------------------------------------
         # 2. Build Pointage objects
@@ -84,6 +85,7 @@ class PointageCsvImporter:
                 "success": True,
                 "imported_rows": 0,
                 "filiale": filiale,
+                "filename": filename,
                 "validation_summary": summary,
             }
 
@@ -129,5 +131,6 @@ class PointageCsvImporter:
             "success": True,
             "imported_rows": len(objects),
             "filiale": filiale,
+            "filename": filename,
             "validation_summary": summary,
         }

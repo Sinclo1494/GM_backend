@@ -3,10 +3,17 @@ import json
 from django.shortcuts import render
 from django.http import JsonResponse
 
-from rest_framework import status, viewsets
+from rest_framework import status, viewsets, permissions, mixins
 from rest_framework.parsers import MultiPartParser, JSONParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from .services.journal_service import (
+    log_action,
+    log_csv_import,
+    serialize_for_journal,
+)
+from .models.journal import JournalActions, JournalModules
 
 from .services.pointage_csv_import.pointage_schema import POINTAGE_SCHEMA
 from .services.gm_csv_import.gm_schema import GRAND_MATERIEL_SCHEMA
@@ -86,6 +93,7 @@ from api.services import (
 
 
 
+from .models import Journal
 from .models import Grand_Materiel
 from .models import Marque_Materiel
 from .models import Type_Marque
@@ -107,7 +115,6 @@ from .models import Regularisation_Mois_GM2
 from .models import Site
 
 
-
 from .serializers import GrandMaterielSerializer
 from .serializers import MarqueMaterielSerializer
 from .serializers import TypeMarqueSerializer
@@ -127,26 +134,200 @@ from .serializers import PointageSerializer
 from .serializers import RegularisationGMSerializer
 from .serializers import RegularisationMoisGM2Serializer
 from .serializers import SiteSerializer
+from .serializers import JournalSerializer
 
 
-class GrandMaterielViewSet(viewsets.ModelViewSet):
+# ---------------------------------------------------------
+# JournalisedModelViewSet mixin
+# ---------------------------------------------------------
+
+class JournalisedModelViewSet(viewsets.ModelViewSet):
+    """
+    ModelViewSet that records journal (audit) entries for
+    CREATE, UPDATE, and DELETE operations.
+
+    Subclasses must set:
+      - journal_module   (JournalModules value)
+      - journal_objet_type (string, typically the model class name)
+      - journal_filiale_field  (FK attr name for code_filiale, optional)
+      - journal_site_field  (FK attr name for code_site, optional)
+    """
+
+    journal_module = None
+    journal_objet_type = None
+    journal_filiale_field = None
+    journal_site_field = None
+
+    def _get_filiale_code(self, instance):
+        if self.journal_filiale_field:
+            fk = getattr(instance, self.journal_filiale_field, None)
+            if fk is not None:
+                return getattr(fk, "code_filiale", None)
+        return None
+
+    def _get_site_code(self, instance):
+        if self.journal_site_field:
+            fk = getattr(instance, self.journal_site_field, None)
+            if fk is not None:
+                return getattr(fk, "code_site", None)
+        return None
+
+    def _serialize_instance(self, instance):
+        serializer = self.get_serializer(instance)
+        data = dict(serializer.data)
+        for key, value in list(data.items()):
+            if value is not None and hasattr(value, "isoformat"):
+                data[key] = value.isoformat()
+        return data
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        log_action(
+            user=self.request.user,
+            action=JournalActions.CREATE,
+            module=self.journal_module,
+            objet_type=self.journal_objet_type,
+            objet_id=instance.pk,
+            nouvelle_valeur=self._serialize_instance(instance),
+            request=self.request,
+            code_filiale=self._get_filiale_code(instance),
+            code_site=self._get_site_code(instance),
+            description=f"Création de {self.journal_objet_type}",
+        )
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        old_data = self._serialize_instance(instance)
+
+        super().perform_update(serializer)
+
+        new_data = self._serialize_instance(instance)
+
+        log_action(
+            user=self.request.user,
+            action=JournalActions.UPDATE,
+            module=self.journal_module,
+            objet_type=self.journal_objet_type,
+            objet_id=instance.pk,
+            ancienne_valeur=old_data,
+            nouvelle_valeur=new_data,
+            request=self.request,
+            code_filiale=self._get_filiale_code(instance),
+            code_site=self._get_site_code(instance),
+            description=f"Modification de {self.journal_objet_type}",
+        )
+
+    def perform_destroy(self, instance):
+        old_data = self._serialize_instance(instance)
+        filiale = self._get_filiale_code(instance)
+        site = self._get_site_code(instance)
+        pk = instance.pk
+        objet_type = self.journal_objet_type
+        module = self.journal_module
+
+        super().perform_destroy(instance)
+
+        log_action(
+            user=self.request.user,
+            action=JournalActions.DELETE,
+            module=module,
+            objet_type=objet_type,
+            objet_id=pk,
+            ancienne_valeur=old_data,
+            request=self.request,
+            code_filiale=filiale,
+            code_site=site,
+            description=f"Suppression de {objet_type}",
+        )
+
+
+# ---------------------------------------------------------
+# Journal ViewSet (read-only, immutable)
+# ---------------------------------------------------------
+
+class JournalViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    queryset = Journal.objects.all()
+    serializer_class = JournalSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+
+        date_debut = self.request.query_params.get("date_debut")
+        if date_debut:
+            qs = qs.filter(date_action__gte=date_debut)
+
+        date_fin = self.request.query_params.get("date_fin")
+        if date_fin:
+            qs = qs.filter(date_action__lte=date_fin)
+
+        user_id = self.request.query_params.get("user")
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+
+        module = self.request.query_params.get("module")
+        if module:
+            qs = qs.filter(module=module)
+
+        action = self.request.query_params.get("action")
+        if action:
+            qs = qs.filter(action=action)
+
+        objet_id = self.request.query_params.get("objet_id")
+        if objet_id:
+            qs = qs.filter(objet_id=objet_id)
+
+        code_filiale = self.request.query_params.get("code_filiale")
+        if code_filiale:
+            qs = qs.filter(code_filiale=code_filiale)
+
+        code_site = self.request.query_params.get("code_site")
+        if code_site:
+            qs = qs.filter(code_site=code_site)
+
+        search = self.request.query_params.get("search")
+        if search:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(description__icontains=search)
+                | Q(objet_type__icontains=search)
+                | Q(objet_id__icontains=search)
+            )
+
+        return qs
+
+
+class GrandMaterielViewSet(JournalisedModelViewSet):
     queryset = Grand_Materiel.objects.all()
     serializer_class = GrandMaterielSerializer
+    journal_module = JournalModules.MATERIEL
+    journal_objet_type = "Grand_Materiel"
+    journal_filiale_field = "code_filiale_g"
 
 
-class MarqueMaterielViewSet(viewsets.ModelViewSet):
+class MarqueMaterielViewSet(JournalisedModelViewSet):
     queryset = Marque_Materiel.objects.all()
     serializer_class = MarqueMaterielSerializer
+    journal_module = JournalModules.MARQUE
+    journal_objet_type = "Marque_Materiel"
 
 
-class TypeMarqueViewSet(viewsets.ModelViewSet):
+class TypeMarqueViewSet(JournalisedModelViewSet):
     queryset = Type_Marque.objects.all()
     serializer_class = TypeMarqueSerializer
+    journal_module = JournalModules.TYPE_MARQUE
+    journal_objet_type = "Type_Marque"
 
 
-class SousFamilleMaterielViewSet(viewsets.ModelViewSet):
+class SousFamilleMaterielViewSet(JournalisedModelViewSet):
     queryset = Sous_Famille_Materiel.objects.all()
     serializer_class = SousFamilleMaterielSerializer
+    journal_module = JournalModules.SOUS_FAMILLE
+    journal_objet_type = "Sous_Famille_Materiel"
 
 
 class FamilleMaterielViewSet(viewsets.ModelViewSet):
@@ -169,9 +350,11 @@ class TypeEtatMaterielViewSet(viewsets.ModelViewSet):
     queryset = Type_Etat_Materiel.objects.all()
     serializer_class = TypeEtatMaterielSerializer
 
-class SituationMaterielViewSet(viewsets.ModelViewSet):
+class SituationMaterielViewSet(JournalisedModelViewSet):
     queryset = Situation_Materiel.objects.all()
     serializer_class = SituationMaterielSerializer
+    journal_module = JournalModules.SITUATION
+    journal_objet_type = "Situation_Materiel"
 
 class EntrepriseViewSet(viewsets.ModelViewSet):
     queryset = Entreprise.objects.all()
@@ -181,9 +364,13 @@ class FilialeViewSet(viewsets.ModelViewSet):
     queryset = Filiale.objects.all()
     serializer_class = FilialeSerializer
 
-class AffectationMaterielViewSet(viewsets.ModelViewSet):
+class AffectationMaterielViewSet(JournalisedModelViewSet):
     queryset = Affectation_Materiel.objects.all()
     serializer_class = AffectationMaterielSerializer
+    journal_module = JournalModules.AFFECTATION
+    journal_objet_type = "Affectation_Materiel"
+    journal_filiale_field = "code_filiale_mere"
+    journal_site_field = "code_site"
 
 class DivisionViewSet(viewsets.ModelViewSet):
     queryset = Division.objects.all()
@@ -193,21 +380,30 @@ class FamilleStructuresViewSet(viewsets.ModelViewSet):
     queryset = Famille_Structures.objects.all()
     serializer_class = FamilleStructuresSerializer
 
-class PointageViewSet(viewsets.ModelViewSet):
+class PointageViewSet(JournalisedModelViewSet):
     queryset = Pointage.objects.all()
     serializer_class = PointageSerializer
+    journal_module = JournalModules.POINTAGE
+    journal_objet_type = "Pointage"
 
-class RegularisationGMViewSet(viewsets.ModelViewSet):
+class RegularisationGMViewSet(JournalisedModelViewSet):
     queryset = Regularisation_GM.objects.all()
     serializer_class = RegularisationGMSerializer
+    journal_module = JournalModules.REGULARISATION
+    journal_objet_type = "Regularisation_GM"
+    journal_site_field = "code_site"
+
 
 class RegularisationMoisGM2ViewSet(viewsets.ModelViewSet):
     queryset = Regularisation_Mois_GM2.objects.all()
     serializer_class = RegularisationMoisGM2Serializer
 
-class SiteViewSet(viewsets.ModelViewSet):
+class SiteViewSet(JournalisedModelViewSet):
     queryset = Site.objects.all()
     serializer_class = SiteSerializer
+    journal_module = JournalModules.SITE
+    journal_objet_type = "Site"
+    journal_filiale_field = "code_filiale"
 
 def pointage_upload_view(request):
     #this used to import csv pointage data from db (features bulk import to make it faster)
@@ -408,6 +604,7 @@ class ValidatePointageView(APIView):
             validation_id = ValidationCache.save(
                 report=report,
                 filiale=filiale,
+                filename=file.name,
             )
 
             response_data["validation_id"] = validation_id
@@ -450,6 +647,15 @@ class ImportPointageView(APIView):
             )
 
             result = importer.import_data()
+
+            try:
+                log_csv_import(
+                    request,
+                    result,
+                    JournalModules.POINTAGE,
+                )
+            except Exception:
+                pass
 
         except PointageValidationExpiredError as exc:
 
@@ -611,6 +817,7 @@ class ValidateGrandMaterielView(APIView):
             validation_id = ValidationCache.save(
                 report=report,
                 filiale=filiale,
+                filename=file.name,
             )
 
             response_data["validation_id"] = validation_id
@@ -657,6 +864,15 @@ class ImportGrandMaterielView(APIView):
             )
 
             result = importer.import_data()
+
+            try:
+                log_csv_import(
+                    request,
+                    result,
+                    JournalModules.MATERIEL,
+                )
+            except Exception:
+                pass
 
         except GMValidationExpiredError as exc:
 
@@ -806,6 +1022,7 @@ class ValidateMarqueView(APIView):
             validation_id = ValidationCache.save(
                 report=report,
                 filiale='',
+                filename=file.name,
             )
 
             response_data["validation_id"] = validation_id
@@ -852,6 +1069,15 @@ class ImportMarqueView(APIView):
             )
 
             result = importer.import_data()
+
+            try:
+                log_csv_import(
+                    request,
+                    result,
+                    JournalModules.MARQUE,
+                )
+            except Exception:
+                pass
 
         except MarqueValidationExpiredError as exc:
 
@@ -1001,6 +1227,7 @@ class ValidateTypeMarqueView(APIView):
             validation_id = ValidationCache.save(
                 report=report,
                 filiale='',
+                filename=file.name,
             )
 
             response_data["validation_id"] = validation_id
@@ -1047,6 +1274,15 @@ class ImportTypeMarqueView(APIView):
             )
 
             result = importer.import_data()
+
+            try:
+                log_csv_import(
+                    request,
+                    result,
+                    JournalModules.TYPE_MARQUE,
+                )
+            except Exception:
+                pass
 
         except TypeMarqueValidationExpiredError as exc:
 
@@ -1196,6 +1432,7 @@ class ValidateSousFamilleView(APIView):
             validation_id = ValidationCache.save(
                 report=report,
                 filiale='',
+                filename=file.name,
             )
 
             response_data["validation_id"] = validation_id
@@ -1242,6 +1479,15 @@ class ImportSousFamilleView(APIView):
             )
 
             result = importer.import_data()
+
+            try:
+                log_csv_import(
+                    request,
+                    result,
+                    JournalModules.SOUS_FAMILLE,
+                )
+            except Exception:
+                pass
 
         except SousFamilleValidationExpiredError as exc:
 
@@ -1407,6 +1653,7 @@ class ValidateSituationAffectationView(APIView):
             validation_id = ValidationCache.save(
                 report=report,
                 filiale=filiale,
+                filename=file.name,
             )
 
             response_data["validation_id"] = validation_id
@@ -1455,6 +1702,15 @@ class ImportSituationAffectationView(APIView):
             )
 
             result = importer.import_data()
+
+            try:
+                log_csv_import(
+                    request,
+                    result,
+                    JournalModules.SITUATION_AFFECTATION,
+                )
+            except Exception:
+                pass
 
         except SituationAffectationValidationExpiredError as exc:
 
@@ -1587,6 +1843,7 @@ class ValidateRegularisationGMView(APIView):
             validation_id = ValidationCache.save(
                 report=report,
                 filiale=filiale,
+                filename=file.name,
             )
 
             response_data["validation_id"] = validation_id
@@ -1621,6 +1878,15 @@ class ImportRegularisationGMView(APIView):
             )
 
             result = importer.import_data()
+
+            try:
+                log_csv_import(
+                    request,
+                    result,
+                    JournalModules.REGULARISATION,
+                )
+            except Exception:
+                pass
 
         except RegularisationGMValidationExpiredError as exc:
 
@@ -1764,6 +2030,7 @@ class ValidateSiteView(APIView):
             validation_id = ValidationCache.save(
                 report=report,
                 filiale="",
+                filename=file.name,
             )
 
             response_data["validation_id"] = validation_id
@@ -1810,6 +2077,15 @@ class ImportSiteView(APIView):
             )
 
             result = importer.import_data()
+
+            try:
+                log_csv_import(
+                    request,
+                    result,
+                    JournalModules.SITE,
+                )
+            except Exception:
+                pass
 
         except SiteValidationExpiredError as exc:
 

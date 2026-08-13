@@ -16,4 +16,7 @@ from .famille_structures import Famille_Structures
 from .pointage import Pointage
 from .regularisation_gm import Regularisation_GM
 from .regularisation_mois_gm2 import Regularisation_Mois_GM2
+from .journal import Journal
+from .journal import JournalActions
+from .journal import JournalModules
 from .site import Site  

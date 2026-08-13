@@ -62,6 +62,7 @@ class GMCsvImporter:
         rows = payload.get("rows", [])
         filiale = payload.get("filiale")
         summary = payload.get("summary", {})
+        filename = payload.get("filename", "")
 
         # -----------------------------------------------------
         # 2. Build Django objects
@@ -89,6 +90,7 @@ class GMCsvImporter:
                 "success": True,
                 "imported_rows": 0,
                 "filiale": filiale,
+                "filename": filename,
                 "validation_summary": summary,
             }
 
@@ -134,5 +136,6 @@ class GMCsvImporter:
             "success": True,
             "imported_rows": len(objects),
             "filiale": filiale,
+            "filename": filename,
             "validation_summary": summary,
         }

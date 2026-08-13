@@ -301,6 +301,7 @@ class SituationAffectationCsvImporter:
 
         rows = payload.get("rows", [])
         summary = payload.get("summary", {})
+        filename = payload.get("filename", "")
 
         self.filiale = payload.get("filiale")
 
@@ -319,6 +320,7 @@ class SituationAffectationCsvImporter:
                 "success": True,
                 "imported_affectations": 0,
                 "imported_situations": 0,
+                "filename": filename,
                 "validation_summary": summary,
             }
 
@@ -465,5 +467,6 @@ class SituationAffectationCsvImporter:
             "success": True,
             "imported_affectations": imported_affectations,
             "imported_situations": imported_situations,
+            "filename": filename,
             "validation_summary": summary,
         }

@@ -70,6 +70,7 @@ router.register(r'pointage', views.PointageViewSet, 'pointage')
 router.register(r'regularisation-gm', views.RegularisationGMViewSet, 'regularisation-gm')
 router.register(r'regularisation-mois-gm2', views.RegularisationMoisGM2ViewSet, 'regularisation-mois-gm2')
 router.register(r'site', views.SiteViewSet, 'site')
+router.register(r'journal', views.JournalViewSet, 'journal')
 
 
 

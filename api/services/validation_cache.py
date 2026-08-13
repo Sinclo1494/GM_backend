@@ -32,6 +32,7 @@ class ValidationCache:
         cls,
         report,
         filiale,
+        filename="",
     ) -> str:
         """
         Save a successful validation result and return
@@ -49,6 +50,7 @@ class ValidationCache:
         payload = {
             "rows": report.rows,
             "filiale": filiale,
+            "filename": filename,
             "summary": report.to_dict()["summary"],
         }
 
