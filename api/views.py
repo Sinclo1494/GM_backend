@@ -141,7 +141,22 @@ from .serializers import JournalSerializer
 # JournalisedModelViewSet mixin
 # ---------------------------------------------------------
 
-class JournalisedModelViewSet(viewsets.ModelViewSet):
+class SearchableModelViewSet(viewsets.ModelViewSet):
+    search_fields = []
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        search = self.request.query_params.get("search")
+        if search and self.search_fields:
+            from django.db.models import Q
+            q = Q()
+            for field in self.search_fields:
+                q |= Q(**{f"{field}__icontains": search})
+            qs = qs.filter(q)
+        return qs
+
+
+class JournalisedModelViewSet(SearchableModelViewSet):
     """
     ModelViewSet that records journal (audit) entries for
     CREATE, UPDATE, and DELETE operations.
@@ -253,6 +268,7 @@ class JournalViewSet(
     queryset = Journal.objects.all()
     serializer_class = JournalSerializer
     permission_classes = [permissions.IsAuthenticated]
+    search_fields = ["description", "objet_type", "objet_id"]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -263,7 +279,7 @@ class JournalViewSet(
 
         date_fin = self.request.query_params.get("date_fin")
         if date_fin:
-            qs = qs.filter(date_action__lte=date_fin)
+            qs = qs.filter(date_action__date__lte=date_fin)
 
         user_id = self.request.query_params.get("user")
         if user_id:
@@ -307,6 +323,7 @@ class GrandMaterielViewSet(JournalisedModelViewSet):
     journal_module = JournalModules.MATERIEL
     journal_objet_type = "Grand_Materiel"
     journal_filiale_field = "code_filiale_g"
+    search_fields = ["code_materiel", "designation", "num_serie", "immatriculation"]
 
 
 class MarqueMaterielViewSet(JournalisedModelViewSet):
@@ -314,6 +331,7 @@ class MarqueMaterielViewSet(JournalisedModelViewSet):
     serializer_class = MarqueMaterielSerializer
     journal_module = JournalModules.MARQUE
     journal_objet_type = "Marque_Materiel"
+    search_fields = ["code_marque", "libelle_marque"]
 
 
 class TypeMarqueViewSet(JournalisedModelViewSet):
@@ -321,6 +339,7 @@ class TypeMarqueViewSet(JournalisedModelViewSet):
     serializer_class = TypeMarqueSerializer
     journal_module = JournalModules.TYPE_MARQUE
     journal_objet_type = "Type_Marque"
+    search_fields = ["code_type_marque", "libelle_type_marque"]
 
 
 class SousFamilleMaterielViewSet(JournalisedModelViewSet):
@@ -328,41 +347,64 @@ class SousFamilleMaterielViewSet(JournalisedModelViewSet):
     serializer_class = SousFamilleMaterielSerializer
     journal_module = JournalModules.SOUS_FAMILLE
     journal_objet_type = "Sous_Famille_Materiel"
+    search_fields = ["code_sous_famille", "libelle_sous_famille"]
 
 
-class FamilleMaterielViewSet(viewsets.ModelViewSet):
+class FamilleMaterielViewSet(JournalisedModelViewSet):
     queryset = Famille_Materiel.objects.all()
     serializer_class = FamilleMaterielSerializer
+    journal_module = JournalModules.MARQUE
+    journal_objet_type = "Famille_Materiel"
+    search_fields = ["code_famille", "libelle_famille"]
 
-class CategorieGMViewSet(viewsets.ModelViewSet):
+class CategorieGMViewSet(JournalisedModelViewSet):
     queryset = Categorie_GM.objects.all()
     serializer_class = CategorieGMSerializer
+    journal_module = JournalModules.MARQUE
+    journal_objet_type = "Categorie_GM"
+    search_fields = ["code_categorie", "libelle_categorie"]
 
-class TypeAffectationViewSet(viewsets.ModelViewSet):
+class TypeAffectationViewSet(JournalisedModelViewSet):
     queryset = Type_Affectation.objects.all()
     serializer_class = TypeAffectationSerializer
+    journal_module = JournalModules.AFFECTATION
+    journal_objet_type = "Type_Affectation"
+    search_fields = ["code_type_affectation", "libelle_type_affectation"]
 
-class TypeSituationViewSet(viewsets.ModelViewSet):
+class TypeSituationViewSet(JournalisedModelViewSet):
     queryset = Type_Situation.objects.all()
     serializer_class = TypeSituationSerializer
+    journal_module = JournalModules.SITUATION
+    journal_objet_type = "Type_Situation"
+    search_fields = ["code_type_situation", "libelle_type_situation"]
 
-class TypeEtatMaterielViewSet(viewsets.ModelViewSet):
+class TypeEtatMaterielViewSet(JournalisedModelViewSet):
     queryset = Type_Etat_Materiel.objects.all()
     serializer_class = TypeEtatMaterielSerializer
+    journal_module = JournalModules.SITUATION
+    journal_objet_type = "Type_Etat_Materiel"
+    search_fields = ["code_type_etat_materiel", "libelle_type_etat_materiel"]
 
 class SituationMaterielViewSet(JournalisedModelViewSet):
     queryset = Situation_Materiel.objects.all()
     serializer_class = SituationMaterielSerializer
     journal_module = JournalModules.SITUATION
     journal_objet_type = "Situation_Materiel"
+    search_fields = ["id_situation", "affectation_id__code_materiel__code_materiel"]
 
-class EntrepriseViewSet(viewsets.ModelViewSet):
+class EntrepriseViewSet(JournalisedModelViewSet):
     queryset = Entreprise.objects.all()
     serializer_class = EntrepriseSerializer
+    journal_module = JournalModules.ADMINISTRATION
+    journal_objet_type = "Entreprise"
+    search_fields = ["code_entreprise", "raison_sociale"]
 
-class FilialeViewSet(viewsets.ModelViewSet):
+class FilialeViewSet(JournalisedModelViewSet):
     queryset = Filiale.objects.all()
     serializer_class = FilialeSerializer
+    journal_module = JournalModules.ADMINISTRATION
+    journal_objet_type = "Filiale"
+    search_fields = ["code_filiale", "libelle_filiale"]
 
 class AffectationMaterielViewSet(JournalisedModelViewSet):
     queryset = Affectation_Materiel.objects.all()
@@ -371,20 +413,28 @@ class AffectationMaterielViewSet(JournalisedModelViewSet):
     journal_objet_type = "Affectation_Materiel"
     journal_filiale_field = "code_filiale_mere"
     journal_site_field = "code_site"
+    search_fields = ["code_affectation", "code_materiel__code_materiel", "code_site__code_site"]
 
-class DivisionViewSet(viewsets.ModelViewSet):
+class DivisionViewSet(JournalisedModelViewSet):
     queryset = Division.objects.all()
     serializer_class = DivisionSerializer
+    journal_module = JournalModules.ADMINISTRATION
+    journal_objet_type = "Division"
+    search_fields = ["code_division", "libelle_division"]
 
-class FamilleStructuresViewSet(viewsets.ModelViewSet):
+class FamilleStructuresViewSet(JournalisedModelViewSet):
     queryset = Famille_Structures.objects.all()
     serializer_class = FamilleStructuresSerializer
+    journal_module = JournalModules.ADMINISTRATION
+    journal_objet_type = "Famille_Structures"
+    search_fields = ["code_famille_structure", "libelle_famille_structure"]
 
 class PointageViewSet(JournalisedModelViewSet):
     queryset = Pointage.objects.all()
     serializer_class = PointageSerializer
     journal_module = JournalModules.POINTAGE
     journal_objet_type = "Pointage"
+    search_fields = ["affectation_id__code_affectation", "mmaa"]
 
 class RegularisationGMViewSet(JournalisedModelViewSet):
     queryset = Regularisation_GM.objects.all()
@@ -392,11 +442,15 @@ class RegularisationGMViewSet(JournalisedModelViewSet):
     journal_module = JournalModules.REGULARISATION
     journal_objet_type = "Regularisation_GM"
     journal_site_field = "code_site"
+    search_fields = ["code_site__code_site", "mmaa"]
 
 
-class RegularisationMoisGM2ViewSet(viewsets.ModelViewSet):
+class RegularisationMoisGM2ViewSet(JournalisedModelViewSet):
     queryset = Regularisation_Mois_GM2.objects.all()
     serializer_class = RegularisationMoisGM2Serializer
+    journal_module = JournalModules.REGULARISATION
+    journal_objet_type = "Regularisation_Mois_GM2"
+    search_fields = ["code_regularisation"]
 
 class SiteViewSet(JournalisedModelViewSet):
     queryset = Site.objects.all()
@@ -404,6 +458,7 @@ class SiteViewSet(JournalisedModelViewSet):
     journal_module = JournalModules.SITE
     journal_objet_type = "Site"
     journal_filiale_field = "code_filiale"
+    search_fields = ["code_site", "libelle_site", "code_region"]
 
 def pointage_upload_view(request):
     #this used to import csv pointage data from db (features bulk import to make it faster)
@@ -2131,3 +2186,4 @@ class ImportSiteView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+

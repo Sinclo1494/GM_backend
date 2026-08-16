@@ -142,6 +142,13 @@ class FamilleStructuresSerializer(serializers.ModelSerializer):
 
 
 class PointageSerializer(serializers.ModelSerializer):
+    code_affectation = serializers.CharField(
+        source="affectation_id.code_affectation", read_only=True
+    )
+    code_materiel = serializers.CharField(
+        source="affectation_id.code_materiel.code_materiel", read_only=True
+    )
+
     class Meta:
         model = Pointage
         fields = "__all__"
