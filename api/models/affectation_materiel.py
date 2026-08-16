@@ -50,6 +50,16 @@ class Affectation_Materiel(models.Model):
                 fields=["code_affectation","code_site"],
             )
         ]
+        indexes = [
+            models.Index(fields=["code_affectation"]),
+            models.Index(fields=["code_materiel"]),
+            models.Index(fields=["code_site"]),
+            models.Index(fields=["code_filiale_mere"]),
+            models.Index(fields=["date_affectation"]),
+            models.Index(fields=["est_bloque"]),
+            models.Index(fields=["prenable"]),
+            models.Index(fields=["code_affectation", "code_site"]),
+        ]
 
 
     def __str__(self):

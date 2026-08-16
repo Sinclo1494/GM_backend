@@ -38,6 +38,13 @@ class Pointage(models.Model):
                 fields=["affectation_id","mmaa"],
             )
         ]
+        indexes = [
+            models.Index(fields=["affectation_id"]),
+            models.Index(fields=["mmaa"]),
+            models.Index(fields=["est_bloque"]),
+            models.Index(fields=["date_modification"]),
+            models.Index(fields=["affectation_id", "mmaa"]),
+        ]
 
     def __str__(self):
         return  f"{self.affectation_id} - {self.mmaa}"

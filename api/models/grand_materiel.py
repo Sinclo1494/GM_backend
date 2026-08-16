@@ -49,3 +49,14 @@ class Grand_Materiel(models.Model):
 
     def __str__(self):
         return self.code_materiel
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["code_materiel"]),
+            models.Index(fields=["code_sous_famille_materiel"]),
+            models.Index(fields=["code_type_marque"]),
+            models.Index(fields=["code_filiale_g"]),
+            models.Index(fields=["est_bloque"]),
+            models.Index(fields=["date_acquisition"]),
+            models.Index(fields=["designation"]),
+        ]

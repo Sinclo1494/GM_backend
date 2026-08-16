@@ -7,6 +7,10 @@ from rest_framework import status, viewsets, permissions, mixins
 from rest_framework.parsers import MultiPartParser, JSONParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.filters import OrderingFilter
+from django.db.models import F, Value, CharField
+from django.db.models.functions import Concat
 
 from .services.journal_service import (
     log_action,
@@ -135,14 +139,29 @@ from .serializers import RegularisationGMSerializer
 from .serializers import RegularisationMoisGM2Serializer
 from .serializers import SiteSerializer
 from .serializers import JournalSerializer
+from .filters import (
+    AffectationMaterielFilter,
+    SituationMaterielFilter,
+    GrandMaterielFilter,
+    PointageFilter,
+)
 
 
 # ---------------------------------------------------------
 # JournalisedModelViewSet mixin
 # ---------------------------------------------------------
 
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 1000
+
 class SearchableModelViewSet(viewsets.ModelViewSet):
     search_fields = []
+    pagination_class = StandardResultsSetPagination
+    filter_backends = []
+    ordering_fields = []
+    ordering = []
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -154,6 +173,11 @@ class SearchableModelViewSet(viewsets.ModelViewSet):
                 q |= Q(**{f"{field}__icontains": search})
             qs = qs.filter(q)
         return qs
+
+    def get_serializer(self, *args, **kwargs):
+        serializer_class = self.get_serializer_class()
+        kwargs.setdefault("context", self.get_serializer_context())
+        return serializer_class(*args, **kwargs)
 
 
 class JournalisedModelViewSet(SearchableModelViewSet):
@@ -318,12 +342,20 @@ class JournalViewSet(
 
 
 class GrandMaterielViewSet(JournalisedModelViewSet):
-    queryset = Grand_Materiel.objects.all()
+    queryset = Grand_Materiel.objects.all().select_related(
+        "code_sous_famille_materiel",
+        "code_type_marque",
+        "code_filiale_g",
+        "user_id",
+    )
     serializer_class = GrandMaterielSerializer
     journal_module = JournalModules.MATERIEL
     journal_objet_type = "Grand_Materiel"
     journal_filiale_field = "code_filiale_g"
     search_fields = ["code_materiel", "designation", "num_serie", "immatriculation"]
+    filter_backends = [OrderingFilter, GrandMaterielFilter]
+    ordering_fields = ["code_materiel", "designation", "date_acquisition", "valeur_acquisition", "est_bloque"]
+    ordering = ["code_materiel"]
 
 
 class MarqueMaterielViewSet(JournalisedModelViewSet):
@@ -386,11 +418,23 @@ class TypeEtatMaterielViewSet(JournalisedModelViewSet):
     search_fields = ["code_type_etat_materiel", "libelle_type_etat_materiel"]
 
 class SituationMaterielViewSet(JournalisedModelViewSet):
-    queryset = Situation_Materiel.objects.all()
+    queryset = Situation_Materiel.objects.all().select_related(
+        "affectation_id",
+        "affectation_id__code_materiel",
+        "affectation_id__code_filiale_mere",
+        "affectation_id__code_site",
+        "type_situation_id",
+        "type_situation_id__code_type_affectation",
+        "code_type_etat_materiel",
+        "user_id",
+    )
     serializer_class = SituationMaterielSerializer
     journal_module = JournalModules.SITUATION
     journal_objet_type = "Situation_Materiel"
     search_fields = ["id_situation", "affectation_id__code_materiel__code_materiel"]
+    filter_backends = [OrderingFilter, SituationMaterielFilter]
+    ordering_fields = ["date_situation", "id_situation", "est_bloque"]
+    ordering = ["-date_situation"]
 
 class EntrepriseViewSet(JournalisedModelViewSet):
     queryset = Entreprise.objects.all()
@@ -407,13 +451,21 @@ class FilialeViewSet(JournalisedModelViewSet):
     search_fields = ["code_filiale", "libelle_filiale"]
 
 class AffectationMaterielViewSet(JournalisedModelViewSet):
-    queryset = Affectation_Materiel.objects.all()
+    queryset = Affectation_Materiel.objects.all().select_related(
+        "code_materiel",
+        "code_filiale_mere",
+        "code_site",
+        "user_id",
+    )
     serializer_class = AffectationMaterielSerializer
     journal_module = JournalModules.AFFECTATION
     journal_objet_type = "Affectation_Materiel"
     journal_filiale_field = "code_filiale_mere"
     journal_site_field = "code_site"
     search_fields = ["code_affectation", "code_materiel__code_materiel", "code_site__code_site"]
+    filter_backends = [OrderingFilter, AffectationMaterielFilter]
+    ordering_fields = ["code_affectation", "date_affectation", "est_bloque", "prenable"]
+    ordering = ["-date_affectation"]
 
 class DivisionViewSet(JournalisedModelViewSet):
     queryset = Division.objects.all()
@@ -430,11 +482,20 @@ class FamilleStructuresViewSet(JournalisedModelViewSet):
     search_fields = ["code_famille_structure", "libelle_famille_structure"]
 
 class PointageViewSet(JournalisedModelViewSet):
-    queryset = Pointage.objects.all()
+    queryset = Pointage.objects.all().select_related(
+        "affectation_id",
+        "affectation_id__code_materiel",
+        "affectation_id__code_filiale_mere",
+        "affectation_id__code_site",
+        "user_id",
+    )
     serializer_class = PointageSerializer
     journal_module = JournalModules.POINTAGE
     journal_objet_type = "Pointage"
     search_fields = ["affectation_id__code_affectation", "mmaa"]
+    filter_backends = [OrderingFilter, PointageFilter]
+    ordering_fields = ["mmaa", "date_modification", "est_bloque"]
+    ordering = ["-mmaa", "-date_modification"]
 
 class RegularisationGMViewSet(JournalisedModelViewSet):
     queryset = Regularisation_GM.objects.all()

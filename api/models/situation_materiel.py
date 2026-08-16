@@ -36,3 +36,13 @@ class Situation_Materiel(models.Model):
 
     def __str__(self):
         return str(self.id)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["affectation_id"]),
+            models.Index(fields=["type_situation_id"]),
+            models.Index(fields=["code_type_etat_materiel"]),
+            models.Index(fields=["date_situation"]),
+            models.Index(fields=["est_bloque"]),
+            models.Index(fields=["affectation_id", "date_situation"]),
+        ]
