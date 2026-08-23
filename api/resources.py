@@ -95,7 +95,7 @@ class Famille_Materiel_Resource(resources.ModelResource):
         fields = (
             "code_famille",
             "code_categorie_gm",
-            "liebelle_famille",
+            "libelle_famille",
             "est_bloque",
         )
 

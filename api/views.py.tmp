@@ -306,9 +306,9 @@ class JournalViewSet(
         if date_fin:
             qs = qs.filter(date_action__date__lte=date_fin)
 
-        username = self.request.query_params.get("user")
-        if username:
-            qs = qs.filter(user__username__icontains=username)
+        user_id = self.request.query_params.get("user")
+        if user_id:
+            qs = qs.filter(user_id=user_id)
 
         module = self.request.query_params.get("module")
         if module:
@@ -355,12 +355,7 @@ class GrandMaterielViewSet(JournalisedModelViewSet):
     journal_filiale_field = "code_filiale_g"
     search_fields = ["code_materiel", "designation", "num_serie", "immatriculation"]
     filter_backends = [OrderingFilter, GrandMaterielFilter]
-    ordering_fields = [
-        "code_materiel", "designation", "num_serie", "immatriculation",
-        "code_filiale_g", "code_sous_famille_materiel", "code_type_marque",
-        "date_acquisition", "valeur_acquisition", "valeur_remplacement",
-        "taux_amortissement", "puissance_materiel", "est_bloque",
-    ]
+    ordering_fields = ["code_materiel", "designation", "date_acquisition", "valeur_acquisition", "est_bloque"]
     ordering = ["code_materiel"]
 
 
@@ -612,83 +607,7 @@ class TP_AE_resume_API_View(APIView):
         )
 
         return Response(data)
-
-
-class DashboardMaterialDetailsAPIView(APIView):
-    """
-    GET /api/dashboard/material-details/
-    Query params:
-      code_filiale (optional)
-      date_debut (optional)
-      date_fin (optional)
-      code_famille (optional)
-      search (optional)
-      page (optional, default 1)
-      page_size (optional, default 50)
-    """
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request):
-        code_filiale = request.query_params.get("code_filiale")
-        date_debut = request.query_params.get("date_debut")
-        date_fin = request.query_params.get("date_fin")
-        code_famille = request.query_params.get("code_famille")
-        search = request.query_params.get("search")
-        page = int(request.query_params.get("page", 1))
-        page_size = int(request.query_params.get("page_size", 50))
-
-        qs = Grand_Materiel.objects.filter(est_bloque=False).select_related(
-            "code_sous_famille_materiel",
-            "code_sous_famille_materiel__code_famille_materiel",
-            "code_type_marque",
-            "code_filiale_g",
-        )
-
-        if code_filiale:
-            qs = qs.filter(code_filiale_g=code_filiale)
-
-        if code_famille:
-            qs = qs.filter(code_sous_famille_materiel__code_famille_materiel__code_famille=code_famille)
-
-        if search:
-            qs = qs.filter(
-                Q(code_materiel__icontains=search)
-                | Q(designation__icontains=search)
-                | Q(code_type_marque__code_type_marque__icontains=search)
-            )
-
-        total = qs.count()
-        start = (page - 1) * page_size
-        end = start + page_size
-        items = qs[start:end]
-
-        result = []
-        for gm in items:
-            sous_famille = gm.code_sous_famille_materiel
-            famille = sous_famille.code_famille_materiel if sous_famille else None
-
-            result.append({
-                "code_materiel": gm.code_materiel,
-                "designation": gm.designation,
-                "code_sous_famille": sous_famille.code_sous_famille if sous_famille else "",
-                "libelle_sous_famille": sous_famille.libelle_sous_famille if sous_famille else "",
-                "code_famille": famille.code_famille if famille else "",
-                "libelle_famille": famille.libelle_famille if famille else "",
-                "code_type_marque": gm.code_type_marque.code_type_marque if gm.code_type_marque else "",
-                "libelle_type_marque": gm.code_type_marque.libelle_type_marque if gm.code_type_marque else "",
-                "code_filiale": gm.code_filiale_g.code_filiale if gm.code_filiale_g else "",
-                "libelle_filiale": gm.code_filiale_g.libelle_filiale if gm.code_filiale_g else "",
-                "est_bloque": gm.est_bloque,
-            })
-
-        return Response({
-            "items": result,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-        })
-
+    
 class ValidatePointageView(APIView):
 
     parser_classes = [MultiPartParser]
@@ -2331,36 +2250,3 @@ class ImportSiteView(APIView):
         )
 
 
-
-class DashboardAPIView(APIView):
-    """
-    GET /api/dashboard/
-    Query params:
-      code_filiale (optional): filter by subsidiary code
-      date_debut (optional, YYYY-MM-DD): start of period for pointage/regularisation
-      date_fin (optional, YYYY-MM-DD): end of period for pointage/regularisation
-      code_famille (optional): filter by material family code
-      periode (optional): period label
-      mode (optional): 'standard' or 'vs_cible'
-    """
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request):
-        code_filiale = request.query_params.get("code_filiale")
-        date_debut = request.query_params.get("date_debut")
-        date_fin = request.query_params.get("date_fin")
-        code_famille = request.query_params.get("code_famille")
-        periode = request.query_params.get("periode")
-        mode = request.query_params.get("mode", "standard")
-
-        data = DashboardService.get_dashboard(
-            code_filiale=code_filiale,
-            date_debut=date_debut,
-            date_fin=date_fin,
-            code_famille=code_famille,
-            periode=periode,
-            mode=mode,
-        )
-
-        return Response(data)

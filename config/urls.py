@@ -42,6 +42,8 @@ from api.views import (
     ImportSiteView,
     ValidateRegularisationGMView,
     ImportRegularisationGMView,
+    DashboardAPIView,
+    DashboardMaterialDetailsAPIView,
     )
 
 from rest_framework_simplejwt.views import (
@@ -103,4 +105,6 @@ urlpatterns = [
     path('api/aetpr/', TP_AE_resume_API_View.as_view()),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/dashboard/', DashboardAPIView.as_view(), name='dashboard'),
+    path('api/dashboard/material-details/', DashboardMaterialDetailsAPIView.as_view(), name='dashboard_material_details'),
 ]
