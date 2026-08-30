@@ -2353,6 +2353,7 @@ class DashboardAPIView(APIView):
         code_famille = request.query_params.get("code_famille")
         periode = request.query_params.get("periode")
         mode = request.query_params.get("mode", "standard")
+        niveau = request.query_params.get("niveau", "engin")
 
         data = DashboardService.get_dashboard(
             code_filiale=code_filiale,
@@ -2361,6 +2362,7 @@ class DashboardAPIView(APIView):
             code_famille=code_famille,
             periode=periode,
             mode=mode,
+            niveau=niveau,
         )
 
         return Response(data)
