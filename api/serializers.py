@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from .models import Journal
 from .models import Grand_Materiel
 from .models import Marque_Materiel
 from .models import Type_Marque
@@ -18,7 +20,11 @@ from .models import Pointage
 from .models import Regularisation_GM
 from .models import Regularisation_Mois_GM2
 from .models import Site
-from .models import Journal
+from .models import UserProfile
+
+User = get_user_model()
+
+User = get_user_model()
 
 
 class JournalSerializer(serializers.ModelSerializer):
@@ -170,3 +176,40 @@ class SiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Site
         fields = "__all__"
+
+
+class UserSerializer(serializers.ModelSerializer):
+    is_superuser = serializers.BooleanField(read_only=True)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "first_name",
+            "last_name",
+            "email",
+            "is_active",
+            "is_superuser",
+            "date_joined",
+            "password",
+        ]
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = ["permissions"]
+
+
+class CurrentUserSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    username = serializers.CharField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    email = serializers.EmailField()
+    is_active = serializers.BooleanField()
+    is_superuser = serializers.BooleanField()
+    permissions = serializers.ListField(child=serializers.CharField())
+

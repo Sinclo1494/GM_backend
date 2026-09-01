@@ -4,6 +4,7 @@ from django.shortcuts import render
 from django.http import JsonResponse
 
 from rest_framework import status, viewsets, permissions, mixins
+from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, JSONParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,6 +12,9 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.filters import OrderingFilter
 from django.db.models import F, Value, CharField
 from django.db.models.functions import Concat
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 from .services.journal_service import (
     log_action,
@@ -38,37 +42,31 @@ from .services.gm_csv_import.csv_importer import (
     GMValidationExpiredError,
     GrandMaterielImportError
 )
-
 from .services.marque_csv_import.csv_importer import (
     MarqueCsvImporter,
     MarqueValidationExpiredError,
     MarqueImportError
 )
-
 from .services.type_marque_csv_import.csv_importer import (
     TypeMarqueCsvImporter,
     TypeMarqueValidationExpiredError,
     TypeMarqueImportError
 )
-
 from .services.sous_famille_csv_import.csv_importer import (
     SousFamilleCsvImporter,
     SousFamilleValidationExpiredError,
     SousFamilleImportError
 )
-
 from .services.situation_affectation_csv_import.csv_importer import (
     SituationAffectationCsvImporter,
     SituationAffectationValidationExpiredError,
     SituationAffectationImportError
 )
-
 from .services.site_csv_import.csv_importer import (
     SiteCsvImporter,
     SiteValidationExpiredError,
     SiteImportError
 )
-
 from .services.regularisation_csv_import.csv_importer import (
     RegularisationGMCsvImporter,
     RegularisationGMValidationExpiredError,
@@ -93,11 +91,6 @@ from api.services import (
 )
 from api.services.dashboard_service import DashboardService
 
-
-
-
-
-
 from .models import Journal
 from .models import Grand_Materiel
 from .models import Marque_Materiel
@@ -118,7 +111,7 @@ from .models import Pointage
 from .models import Regularisation_GM
 from .models import Regularisation_Mois_GM2
 from .models import Site
-
+from .models import UserProfile
 
 from .serializers import GrandMaterielSerializer
 from .serializers import MarqueMaterielSerializer
@@ -140,6 +133,10 @@ from .serializers import RegularisationGMSerializer
 from .serializers import RegularisationMoisGM2Serializer
 from .serializers import SiteSerializer
 from .serializers import JournalSerializer
+from .serializers import UserSerializer
+from .serializers import UserProfileSerializer
+from .serializers import CurrentUserSerializer
+from .permissions import PagePermissionRequiredMixin
 from .filters import (
     AffectationMaterielFilter,
     SituationMaterielFilter,
@@ -157,7 +154,7 @@ class StandardResultsSetPagination(PageNumberPagination):
     page_size_query_param = "page_size"
     max_page_size = 1000
 
-class SearchableModelViewSet(viewsets.ModelViewSet):
+class SearchableModelViewSet(PagePermissionRequiredMixin, viewsets.ModelViewSet):
     search_fields = []
     pagination_class = StandardResultsSetPagination
     filter_backends = []
@@ -286,13 +283,14 @@ class JournalisedModelViewSet(SearchableModelViewSet):
 # ---------------------------------------------------------
 
 class JournalViewSet(
+    PagePermissionRequiredMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
     queryset = Journal.objects.all()
     serializer_class = JournalSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_required = "administration.journalisation"
     search_fields = ["description", "objet_type", "objet_id"]
 
     def get_queryset(self):
@@ -353,6 +351,7 @@ class GrandMaterielViewSet(JournalisedModelViewSet):
     journal_module = JournalModules.MATERIEL
     journal_objet_type = "Grand_Materiel"
     journal_filiale_field = "code_filiale_g"
+    permission_required = ("gestion.grand_materiel", "analyse.journal_materiel")
     search_fields = ["code_materiel", "designation", "num_serie", "immatriculation"]
     filter_backends = [OrderingFilter, GrandMaterielFilter]
     ordering_fields = [
@@ -369,6 +368,7 @@ class MarqueMaterielViewSet(JournalisedModelViewSet):
     serializer_class = MarqueMaterielSerializer
     journal_module = JournalModules.MARQUE
     journal_objet_type = "Marque_Materiel"
+    permission_required = "gestion.marques_materiel"
     search_fields = ["code_marque", "libelle_marque"]
 
 
@@ -377,6 +377,7 @@ class TypeMarqueViewSet(JournalisedModelViewSet):
     serializer_class = TypeMarqueSerializer
     journal_module = JournalModules.TYPE_MARQUE
     journal_objet_type = "Type_Marque"
+    permission_required = "gestion.types_marque"
     search_fields = ["code_type_marque", "libelle_type_marque"]
 
 
@@ -385,6 +386,7 @@ class SousFamilleMaterielViewSet(JournalisedModelViewSet):
     serializer_class = SousFamilleMaterielSerializer
     journal_module = JournalModules.SOUS_FAMILLE
     journal_objet_type = "Sous_Famille_Materiel"
+    permission_required = "gestion.sous_familles_materiel"
     search_fields = ["code_sous_famille", "libelle_sous_famille"]
 
 
@@ -393,6 +395,7 @@ class FamilleMaterielViewSet(JournalisedModelViewSet):
     serializer_class = FamilleMaterielSerializer
     journal_module = JournalModules.MARQUE
     journal_objet_type = "Famille_Materiel"
+    permission_required = "gestion.familles_materiel"
     search_fields = ["code_famille", "libelle_famille"]
 
 class CategorieGMViewSet(JournalisedModelViewSet):
@@ -400,6 +403,7 @@ class CategorieGMViewSet(JournalisedModelViewSet):
     serializer_class = CategorieGMSerializer
     journal_module = JournalModules.MARQUE
     journal_objet_type = "Categorie_GM"
+    permission_required = "gestion.categories_gm"
     search_fields = ["code_categorie", "libelle_categorie"]
 
 class TypeAffectationViewSet(JournalisedModelViewSet):
@@ -407,6 +411,7 @@ class TypeAffectationViewSet(JournalisedModelViewSet):
     serializer_class = TypeAffectationSerializer
     journal_module = JournalModules.AFFECTATION
     journal_objet_type = "Type_Affectation"
+    permission_required = "gestion.types_affectation"
     search_fields = ["code_type_affectation", "libelle_type_affectation"]
 
 class TypeSituationViewSet(JournalisedModelViewSet):
@@ -414,6 +419,7 @@ class TypeSituationViewSet(JournalisedModelViewSet):
     serializer_class = TypeSituationSerializer
     journal_module = JournalModules.SITUATION
     journal_objet_type = "Type_Situation"
+    permission_required = "gestion.types_situation"
     search_fields = ["code_type_situation", "libelle_type_situation"]
 
 class TypeEtatMaterielViewSet(JournalisedModelViewSet):
@@ -421,6 +427,7 @@ class TypeEtatMaterielViewSet(JournalisedModelViewSet):
     serializer_class = TypeEtatMaterielSerializer
     journal_module = JournalModules.SITUATION
     journal_objet_type = "Type_Etat_Materiel"
+    permission_required = "gestion.types_etat_materiel"
     search_fields = ["code_type_etat_materiel", "libelle_type_etat_materiel"]
 
 class SituationMaterielViewSet(JournalisedModelViewSet):
@@ -437,6 +444,7 @@ class SituationMaterielViewSet(JournalisedModelViewSet):
     serializer_class = SituationMaterielSerializer
     journal_module = JournalModules.SITUATION
     journal_objet_type = "Situation_Materiel"
+    permission_required = "gestion.situations"
     search_fields = ["id_situation", "affectation_id__code_materiel__code_materiel"]
     filter_backends = [OrderingFilter, SituationMaterielFilter]
     ordering_fields = ["date_situation", "id_situation", "est_bloque"]
@@ -447,6 +455,7 @@ class EntrepriseViewSet(JournalisedModelViewSet):
     serializer_class = EntrepriseSerializer
     journal_module = JournalModules.ADMINISTRATION
     journal_objet_type = "Entreprise"
+    permission_required = "gestion.entreprises"
     search_fields = ["code_entreprise", "raison_sociale"]
 
 class FilialeViewSet(JournalisedModelViewSet):
@@ -454,6 +463,7 @@ class FilialeViewSet(JournalisedModelViewSet):
     serializer_class = FilialeSerializer
     journal_module = JournalModules.ADMINISTRATION
     journal_objet_type = "Filiale"
+    permission_required = "gestion.filiales"
     search_fields = ["code_filiale", "libelle_filiale"]
 
 class AffectationMaterielViewSet(JournalisedModelViewSet):
@@ -468,6 +478,7 @@ class AffectationMaterielViewSet(JournalisedModelViewSet):
     journal_objet_type = "Affectation_Materiel"
     journal_filiale_field = "code_filiale_mere"
     journal_site_field = "code_site"
+    permission_required = "gestion.affectations"
     search_fields = ["code_affectation", "code_materiel__code_materiel", "code_site__code_site"]
     filter_backends = [OrderingFilter, AffectationMaterielFilter]
     ordering_fields = ["code_affectation", "date_affectation", "est_bloque", "prenable"]
@@ -478,6 +489,7 @@ class DivisionViewSet(JournalisedModelViewSet):
     serializer_class = DivisionSerializer
     journal_module = JournalModules.ADMINISTRATION
     journal_objet_type = "Division"
+    permission_required = "gestion.divisions"
     search_fields = ["code_division", "libelle_division"]
 
 class FamilleStructuresViewSet(JournalisedModelViewSet):
@@ -485,6 +497,7 @@ class FamilleStructuresViewSet(JournalisedModelViewSet):
     serializer_class = FamilleStructuresSerializer
     journal_module = JournalModules.ADMINISTRATION
     journal_objet_type = "Famille_Structures"
+    permission_required = "gestion.familles_structures"
     search_fields = ["code_famille_structure", "libelle_famille_structure"]
 
 class PointageViewSet(JournalisedModelViewSet):
@@ -498,6 +511,7 @@ class PointageViewSet(JournalisedModelViewSet):
     serializer_class = PointageSerializer
     journal_module = JournalModules.POINTAGE
     journal_objet_type = "Pointage"
+    permission_required = "gestion.pointages"
     search_fields = ["affectation_id__code_affectation", "mmaa"]
     filter_backends = [OrderingFilter, PointageFilter]
     ordering_fields = ["mmaa", "date_modification", "est_bloque"]
@@ -509,6 +523,7 @@ class RegularisationGMViewSet(JournalisedModelViewSet):
     journal_module = JournalModules.REGULARISATION
     journal_objet_type = "Regularisation_GM"
     journal_site_field = "code_site"
+    permission_required = "gestion.regularisations_gm"
     search_fields = ["code_site__code_site", "mmaa"]
 
 
@@ -517,6 +532,7 @@ class RegularisationMoisGM2ViewSet(JournalisedModelViewSet):
     serializer_class = RegularisationMoisGM2Serializer
     journal_module = JournalModules.REGULARISATION
     journal_objet_type = "Regularisation_Mois_GM2"
+    permission_required = "gestion.regularisations_mois"
     search_fields = ["code_regularisation"]
 
 class SiteViewSet(JournalisedModelViewSet):
@@ -525,6 +541,7 @@ class SiteViewSet(JournalisedModelViewSet):
     journal_module = JournalModules.SITE
     journal_objet_type = "Site"
     journal_filiale_field = "code_filiale"
+    permission_required = "gestion.sites"
     search_fields = ["code_site", "libelle_site", "code_region"]
 
 def pointage_upload_view(request):
@@ -557,7 +574,9 @@ def situation_upload_view(request):
 
     return render(request, "situation_upload.html")
 
-class TP_AQ_API_View(APIView):
+class TP_AQ_API_View(PagePermissionRequiredMixin, APIView):
+    permission_required = "analyse.quantitative"
+
     def get(self, request):
         code_filiale = request.query_params.get("code_filiale")
         date_debut = request.query_params.get("date_debut")
@@ -571,7 +590,9 @@ class TP_AQ_API_View(APIView):
 
         return Response(data)
 
-class TP_AQ_resume_API_View(APIView):
+class TP_AQ_resume_API_View(PagePermissionRequiredMixin, APIView):
+    permission_required = "analyse.quantitative"
+
     def get(self, request):
         code_filiale = request.query_params.get("code_filiale")
         date_debut = request.query_params.get("date_debut")
@@ -585,7 +606,9 @@ class TP_AQ_resume_API_View(APIView):
 
         return Response(data)
 
-class TP_AE_API_View(APIView):
+class TP_AE_API_View(PagePermissionRequiredMixin, APIView):
+    permission_required = "analyse.exploitation"
+
     def get(self, request):
         code_filiale = request.query_params.get("code_filiale")
         date_debut = request.query_params.get("date_debut")
@@ -599,7 +622,9 @@ class TP_AE_API_View(APIView):
 
         return Response(data)
 
-class TP_AE_resume_API_View(APIView):
+class TP_AE_resume_API_View(PagePermissionRequiredMixin, APIView):
+    permission_required = "analyse.exploitation"
+
     def get(self, request):
         code_filiale = request.query_params.get("code_filiale")
         date_debut = request.query_params.get("date_debut")
@@ -614,20 +639,20 @@ class TP_AE_resume_API_View(APIView):
         return Response(data)
 
 
-class DashboardMaterialDetailsAPIView(APIView):
+class DashboardMaterialDetailsAPIView(PagePermissionRequiredMixin, APIView):
     """
     GET /api/dashboard/material-details/
     Query params:
       code_filiale (optional)
-      date_debut (optional)
-      date_fin (optional)
+      date_debut (optional, YYYY-MM-DD): start of period
+      date_fin (optional, YYYY-MM-DD): end of period
       code_famille (optional)
       search (optional)
       page (optional, default 1)
       page_size (optional, default 50)
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_required = "analyse.dashboard"
 
     def get(self, request):
         code_filiale = request.query_params.get("code_filiale")
@@ -689,7 +714,8 @@ class DashboardMaterialDetailsAPIView(APIView):
             "page_size": page_size,
         })
 
-class ValidatePointageView(APIView):
+class ValidatePointageView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.pointage"
 
     parser_classes = [MultiPartParser]
 
@@ -813,7 +839,8 @@ class ValidatePointageView(APIView):
         )
 
 
-class ImportPointageView(APIView):
+class ImportPointageView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.pointage"
 
     parser_classes = [JSONParser]
 
@@ -901,7 +928,8 @@ class ImportPointageView(APIView):
         )
 
 
-class ValidateGrandMaterielView(APIView):
+class ValidateGrandMaterielView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.grand_materiel"
 
     parser_classes = [MultiPartParser]
 
@@ -1029,7 +1057,8 @@ class ValidateGrandMaterielView(APIView):
             status=status.HTTP_200_OK,
         )
     
-class ImportGrandMaterielView(APIView):
+class ImportGrandMaterielView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.grand_materiel"
 
     parser_classes = [JSONParser]
 
@@ -1118,7 +1147,8 @@ class ImportGrandMaterielView(APIView):
         )
     
 
-class ValidateMarqueView(APIView):
+class ValidateMarqueView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.marque"
 
     parser_classes = [MultiPartParser]
 
@@ -1234,7 +1264,8 @@ class ValidateMarqueView(APIView):
             status=status.HTTP_200_OK,
         )
     
-class ImportMarqueView(APIView):
+class ImportMarqueView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.marque"
 
     parser_classes = [JSONParser]
 
@@ -1322,7 +1353,8 @@ class ImportMarqueView(APIView):
             status=status.HTTP_201_CREATED,
         )
     
-class ValidateTypeMarqueView(APIView):
+class ValidateTypeMarqueView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.type_marque"
 
     parser_classes = [MultiPartParser]
 
@@ -1439,7 +1471,8 @@ class ValidateTypeMarqueView(APIView):
             status=status.HTTP_200_OK,
         )
 
-class ImportTypeMarqueView(APIView):
+class ImportTypeMarqueView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.type_marque"
 
     parser_classes = [JSONParser]
 
@@ -1527,7 +1560,8 @@ class ImportTypeMarqueView(APIView):
             status=status.HTTP_201_CREATED,
         )
     
-class ValidateSousFamilleView(APIView):
+class ValidateSousFamilleView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.sous_famille"
 
     parser_classes = [MultiPartParser]
 
@@ -1644,7 +1678,8 @@ class ValidateSousFamilleView(APIView):
             status=status.HTTP_200_OK,
         )
 
-class ImportSousFamilleView(APIView):
+class ImportSousFamilleView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.sous_famille"
 
     parser_classes = [JSONParser]
 
@@ -1733,7 +1768,8 @@ class ImportSousFamilleView(APIView):
         )
 
 
-class ValidateSituationAffectationView(APIView):
+class ValidateSituationAffectationView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.situation_affectation"
 
     parser_classes = [MultiPartParser]
 
@@ -1866,7 +1902,8 @@ class ValidateSituationAffectationView(APIView):
         )
 
 
-class ImportSituationAffectationView(APIView):
+class ImportSituationAffectationView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.situation_affectation"
 
     parser_classes = [JSONParser]
 
@@ -1956,7 +1993,8 @@ class ImportSituationAffectationView(APIView):
         )
 
 
-class ValidateRegularisationGMView(APIView):
+class ValidateRegularisationGMView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.regularisation"
 
     parser_classes = [MultiPartParser]
 
@@ -2052,7 +2090,8 @@ class ValidateRegularisationGMView(APIView):
         )
 
 
-class ImportRegularisationGMView(APIView):
+class ImportRegularisationGMView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.regularisation"
 
     parser_classes = [JSONParser]
 
@@ -2127,7 +2166,8 @@ class ImportRegularisationGMView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-class ValidateSiteView(APIView):
+class ValidateSiteView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.site"
 
     parser_classes = [MultiPartParser]
 
@@ -2242,7 +2282,8 @@ class ValidateSiteView(APIView):
             status=status.HTTP_200_OK,
         )
 
-class ImportSiteView(APIView):
+class ImportSiteView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.site"
 
     parser_classes = [JSONParser]
 
@@ -2331,10 +2372,10 @@ class ImportSiteView(APIView):
         )
 
 
-
-class DashboardAPIView(APIView):
+class DashboardAPIView(PagePermissionRequiredMixin, APIView):
     """
     GET /api/dashboard/
+
     Query params:
       code_filiale (optional): filter by subsidiary code
       date_debut (optional, YYYY-MM-DD): start of period for pointage/regularisation
@@ -2344,7 +2385,7 @@ class DashboardAPIView(APIView):
       mode (optional): 'standard' or 'vs_cible'
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_required = "analyse.dashboard"
 
     def get(self, request):
         code_filiale = request.query_params.get("code_filiale")
@@ -2366,3 +2407,90 @@ class DashboardAPIView(APIView):
         )
 
         return Response(data)
+
+
+class CurrentUserView(PagePermissionRequiredMixin, APIView):
+    permission_required = None
+
+    def get(self, request):
+        profile = getattr(request.user, "profile", None)
+        permissions_list = profile.permissions if profile else []
+        data = {
+            "id": request.user.id,
+            "username": request.user.username,
+            "first_name": request.user.first_name,
+            "last_name": request.user.last_name,
+            "email": request.user.email,
+            "is_active": request.user.is_active,
+            "is_superuser": request.user.is_superuser,
+            "permissions": permissions_list,
+        }
+        return Response(data)
+
+
+class UserViewSet(SearchableModelViewSet):
+    queryset = User.objects.all().order_by("username")
+    serializer_class = UserSerializer
+    search_fields = ["username", "first_name", "last_name", "email"]
+    permission_required = "administration.users"
+
+    def get_permissions(self):
+        if self.action == "me":
+            return [permissions.IsAuthenticated()]
+        return super().get_permissions()
+
+    def perform_create(self, serializer):
+        password = serializer.validated_data.get("password")
+        user = serializer.save()
+        if password:
+            user.set_password(password)
+            user.save()
+
+    def perform_update(self, serializer):
+        password = serializer.validated_data.get("password")
+        user = serializer.save()
+        if password:
+            user.set_password(password)
+            user.save()
+
+    @action(detail=True, methods=["get", "patch"], url_path="permissions")
+    def permissions(self, request, pk=None):
+        user = self.get_object()
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+
+        if request.method == "PATCH":
+            serializer = UserProfileSerializer(profile, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            profile = serializer.instance
+
+        return Response(UserProfileSerializer(profile).data)
+
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        profile = getattr(request.user, "profile", None)
+        permissions_list = profile.permissions if profile else []
+        data = {
+            "id": request.user.id,
+            "username": request.user.username,
+            "first_name": request.user.first_name,
+            "last_name": request.user.last_name,
+            "email": request.user.email,
+            "is_active": request.user.is_active,
+            "is_superuser": request.user.is_superuser,
+            "permissions": permissions_list,
+        }
+        return Response(data)
+
+    @action(detail=True, methods=["post"], url_path="set_password")
+    def set_password(self, request, pk=None):
+        user = self.get_object()
+        password = request.data.get("password")
+        if not password:
+            return Response(
+                {"message": "Le mot de passe est obligatoire."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user.set_password(password)
+        user.save()
+        return Response({"message": "Mot de passe mis à jour."})
