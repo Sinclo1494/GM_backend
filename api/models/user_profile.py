@@ -11,6 +11,9 @@ class UserProfile(models.Model):
         related_name="profile",
     )
     permissions = models.JSONField(default=list, blank=True)
+    default_landing_page = models.CharField(max_length=200, blank=True, default="")
+    remember_last_visited_page = models.BooleanField(default=False)
+    last_visited_page = models.CharField(max_length=200, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

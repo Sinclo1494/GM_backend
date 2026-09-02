@@ -13,6 +13,7 @@ from rest_framework.filters import OrderingFilter
 from django.db.models import F, Value, CharField
 from django.db.models.functions import Concat
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 
 User = get_user_model()
 
@@ -136,6 +137,7 @@ from .serializers import JournalSerializer
 from .serializers import UserSerializer
 from .serializers import UserProfileSerializer
 from .serializers import CurrentUserSerializer
+from .serializers import UserPreferencesSerializer
 from .permissions import PagePermissionRequiredMixin
 from .filters import (
     AffectationMaterielFilter,
@@ -393,7 +395,7 @@ class SousFamilleMaterielViewSet(JournalisedModelViewSet):
 class FamilleMaterielViewSet(JournalisedModelViewSet):
     queryset = Famille_Materiel.objects.all()
     serializer_class = FamilleMaterielSerializer
-    journal_module = JournalModules.MARQUE
+    journal_module = JournalModules.FAMILLE
     journal_objet_type = "Famille_Materiel"
     permission_required = "gestion.familles_materiel"
     search_fields = ["code_famille", "libelle_famille"]
@@ -401,7 +403,7 @@ class FamilleMaterielViewSet(JournalisedModelViewSet):
 class CategorieGMViewSet(JournalisedModelViewSet):
     queryset = Categorie_GM.objects.all()
     serializer_class = CategorieGMSerializer
-    journal_module = JournalModules.MARQUE
+    journal_module = JournalModules.CATEGORIE
     journal_objet_type = "Categorie_GM"
     permission_required = "gestion.categories_gm"
     search_fields = ["code_categorie", "libelle_categorie"]
@@ -425,7 +427,7 @@ class TypeSituationViewSet(JournalisedModelViewSet):
 class TypeEtatMaterielViewSet(JournalisedModelViewSet):
     queryset = Type_Etat_Materiel.objects.all()
     serializer_class = TypeEtatMaterielSerializer
-    journal_module = JournalModules.SITUATION
+    journal_module = JournalModules.TYPE_ETAT
     journal_objet_type = "Type_Etat_Materiel"
     permission_required = "gestion.types_etat_materiel"
     search_fields = ["code_type_etat_materiel", "libelle_type_etat_materiel"]
@@ -2435,7 +2437,7 @@ class UserViewSet(SearchableModelViewSet):
     permission_required = "administration.users"
 
     def get_permissions(self):
-        if self.action == "me":
+        if self.action in ("me", "preferences", "change_password"):
             return [permissions.IsAuthenticated()]
         return super().get_permissions()
 
@@ -2445,13 +2447,51 @@ class UserViewSet(SearchableModelViewSet):
         if password:
             user.set_password(password)
             user.save()
+        log_action(
+            user=self.request.user,
+            action=JournalActions.CREATE,
+            module=JournalModules.UTILISATEUR,
+            objet_type="User",
+            objet_id=user.pk,
+            nouvelle_valeur=serialize_for_journal(user, UserSerializer),
+            request=self.request,
+            description=f"Création de User",
+        )
 
     def perform_update(self, serializer):
+        user = serializer.instance
+        old_data = serialize_for_journal(user, UserSerializer)
         password = serializer.validated_data.get("password")
         user = serializer.save()
         if password:
             user.set_password(password)
             user.save()
+        new_data = serialize_for_journal(user, UserSerializer)
+        log_action(
+            user=self.request.user,
+            action=JournalActions.UPDATE,
+            module=JournalModules.UTILISATEUR,
+            objet_type="User",
+            objet_id=user.pk,
+            ancienne_valeur=old_data,
+            nouvelle_valeur=new_data,
+            request=self.request,
+            description=f"Modification de User",
+        )
+
+    def perform_destroy(self, instance):
+        old_data = serialize_for_journal(instance, UserSerializer)
+        super().perform_destroy(instance)
+        log_action(
+            user=self.request.user,
+            action=JournalActions.DELETE,
+            module=JournalModules.UTILISATEUR,
+            objet_type="User",
+            objet_id=instance.pk,
+            ancienne_valeur=old_data,
+            request=self.request,
+            description=f"Suppression de User",
+        )
 
     @action(detail=True, methods=["get", "patch"], url_path="permissions")
     def permissions(self, request, pk=None):
@@ -2459,10 +2499,23 @@ class UserViewSet(SearchableModelViewSet):
         profile, _ = UserProfile.objects.get_or_create(user=user)
 
         if request.method == "PATCH":
+            old_permissions = list(profile.permissions) if profile.permissions else []
             serializer = UserProfileSerializer(profile, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()
             profile = serializer.instance
+
+            log_action(
+                user=self.request.user,
+                action=JournalActions.UPDATE,
+                module=JournalModules.UTILISATEUR,
+                objet_type="UserProfile",
+                objet_id=profile.pk,
+                ancienne_valeur={"permissions": old_permissions},
+                nouvelle_valeur={"permissions": profile.permissions},
+                request=self.request,
+                description=f"Modification des droits d'accès pour User",
+            )
 
         return Response(UserProfileSerializer(profile).data)
 
@@ -2482,6 +2535,57 @@ class UserViewSet(SearchableModelViewSet):
         }
         return Response(data)
 
+    @action(detail=False, methods=["get", "patch"], url_path="preferences")
+    def preferences(self, request):
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        if request.method == "GET":
+            serializer = UserPreferencesSerializer(profile)
+            return Response(serializer.data)
+        serializer = UserPreferencesSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["post"], url_path="change_password")
+    def change_password(self, request):
+        user = request.user
+        current_password = request.data.get("current_password")
+        new_password = request.data.get("new_password")
+        if not current_password or not new_password:
+            return Response(
+                {"detail": "Le mot de passe actuel et le nouveau mot de passe sont obligatoires."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not user.check_password(current_password):
+            return Response(
+                {"current_password": ["Mot de passe actuel incorrect."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if current_password == new_password:
+            return Response(
+                {"new_password": ["Le nouveau mot de passe doit être différent de l'ancien."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            validate_password(new_password, user=user)
+        except Exception as exc:
+            return Response(
+                {"new_password": [str(exc)]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user.set_password(new_password)
+        user.save()
+        log_action(
+            user=request.user,
+            action=JournalActions.UPDATE,
+            module=JournalModules.UTILISATEUR,
+            objet_type="User",
+            objet_id=user.pk,
+            description=f"Changement de mot de passe pour User",
+            request=request,
+        )
+        return Response({"detail": "Mot de passe modifié avec succès."})
+
     @action(detail=True, methods=["post"], url_path="set_password")
     def set_password(self, request, pk=None):
         user = self.get_object()
@@ -2493,4 +2597,13 @@ class UserViewSet(SearchableModelViewSet):
             )
         user.set_password(password)
         user.save()
+        log_action(
+            user=self.request.user,
+            action=JournalActions.UPDATE,
+            module=JournalModules.UTILISATEUR,
+            objet_type="User",
+            objet_id=user.pk,
+            description=f"Changement de mot de passe pour User",
+            request=self.request,
+        )
         return Response({"message": "Mot de passe mis à jour."})

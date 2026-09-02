@@ -14,7 +14,17 @@ class HasPagePermission(permissions.BasePermission):
         if not profile:
             return False
         user_perms = profile.permissions or []
-        return any(p in user_perms for p in self.permission_required)
+        is_write = request.method in ("POST", "PUT", "PATCH", "DELETE")
+        for required in self.permission_required:
+            if required in user_perms:
+                return True
+            if is_write:
+                if f"{required}.write" in user_perms:
+                    return True
+            else:
+                if f"{required}.read" in user_perms or f"{required}.write" in user_perms:
+                    return True
+        return False
 
 
 class PagePermissionRequiredMixin:

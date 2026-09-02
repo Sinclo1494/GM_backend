@@ -9,16 +9,12 @@ class JournalActions:
     UPDATE = "UPDATE"
     DELETE = "DELETE"
     IMPORT = "IMPORT"
-    VALIDATE = "VALIDATE"
-    CANCEL = "CANCEL"
 
     CHOICES = [
         (CREATE, "Création"),
         (UPDATE, "Modification"),
         (DELETE, "Suppression"),
         (IMPORT, "Import"),
-        (VALIDATE, "Validation"),
-        (CANCEL, "Annulation"),
     ]
 
 
@@ -28,7 +24,6 @@ class JournalModules:
     SITUATION = "SITUATION"
     POINTAGE = "POINTAGE"
     REGULARISATION = "REGULARISATION"
-    IMPORT = "IMPORT"
     UTILISATEUR = "UTILISATEUR"
     ADMINISTRATION = "ADMINISTRATION"
     MARQUE = "MARQUE"
@@ -36,6 +31,9 @@ class JournalModules:
     SOUS_FAMILLE = "SOUS_FAMILLE"
     SITE = "SITE"
     SITUATION_AFFECTATION = "SITUATION_AFFECTATION"
+    FAMILLE = "FAMILLE"
+    CATEGORIE = "CATEGORIE"
+    TYPE_ETAT = "TYPE_ETAT"
 
     CHOICES = [
         (MATERIEL, "Matériel"),
@@ -43,7 +41,6 @@ class JournalModules:
         (SITUATION, "Situation"),
         (POINTAGE, "Pointage"),
         (REGULARISATION, "Régularisation"),
-        (IMPORT, "Import"),
         (UTILISATEUR, "Utilisateur"),
         (ADMINISTRATION, "Administration"),
         (MARQUE, "Marque"),
@@ -51,6 +48,9 @@ class JournalModules:
         (SOUS_FAMILLE, "Sous-Famille"),
         (SITE, "Site"),
         (SITUATION_AFFECTATION, "Situation Affectation"),
+        (FAMILLE, "Famille"),
+        (CATEGORIE, "Catégorie"),
+        (TYPE_ETAT, "Type d'État"),
     ]
 
 

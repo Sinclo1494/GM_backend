@@ -181,6 +181,7 @@ class SiteSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     is_superuser = serializers.BooleanField(read_only=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    permissions = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -194,13 +195,24 @@ class UserSerializer(serializers.ModelSerializer):
             "is_superuser",
             "date_joined",
             "password",
+            "permissions",
         ]
+
+    def get_permissions(self, obj):
+        profile = getattr(obj, "profile", None)
+        return list(profile.permissions) if profile else []
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = ["permissions"]
+
+
+class UserPreferencesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = ["default_landing_page", "remember_last_visited_page", "last_visited_page"]
 
 
 class CurrentUserSerializer(serializers.Serializer):
