@@ -25,6 +25,8 @@ class CsvNormalizer:
             return ""
 
         value = value.strip()
+        if not value:
+            return ""
 
         # Remove SQL Server milliseconds
         if "." in value:
@@ -168,6 +170,10 @@ class CsvNormalizer:
                 if not source_row or not any(
                     cell.strip() for cell in source_row
                 ):
+                    continue
+
+                # Skip CSV header row if it matches expected headers
+                if [cell.strip() for cell in source_row] == list(expected_headers):
                     continue
 
                 normalized_row = []

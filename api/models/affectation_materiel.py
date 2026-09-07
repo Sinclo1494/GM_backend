@@ -28,6 +28,8 @@ class Affectation_Materiel(models.Model):
         db_column="code_site",
         to_field="code_site",
         related_name="affectations",
+        null=True,
+        blank=True,
     )
     date_affectation = models.DateTimeField()
     date_fin_affectation = models.DateTimeField(null=True,blank=True)

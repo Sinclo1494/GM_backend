@@ -10,10 +10,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.filters import OrderingFilter
+from django.db import transaction
 from django.db.models import F, Value, CharField
 from django.db.models.functions import Concat
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -345,7 +347,10 @@ class JournalViewSet(
 class GrandMaterielViewSet(JournalisedModelViewSet):
     queryset = Grand_Materiel.objects.all().select_related(
         "code_sous_famille_materiel",
+        "code_sous_famille_materiel__code_famille_materiel",
+        "code_sous_famille_materiel__code_famille_materiel__code_categorie_gm",
         "code_type_marque",
+        "code_type_marque__code_marque",
         "code_filiale_g",
         "user_id",
     )
@@ -361,8 +366,70 @@ class GrandMaterielViewSet(JournalisedModelViewSet):
         "code_filiale_g", "code_sous_famille_materiel", "code_type_marque",
         "date_acquisition", "valeur_acquisition", "valeur_remplacement",
         "taux_amortissement", "puissance_materiel", "est_bloque",
+        "libelle_famille", "libelle_categorie", "libelle_marque",
     ]
     ordering = ["code_materiel"]
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            instance = serializer.save()
+
+            extra = self.request.data
+            code_site = extra.get("code_site")
+            date_affectation = extra.get("date_affectation")
+            date_debut_affectation = extra.get("date_debut_affectation")
+            date_fin_affectation = extra.get("date_fin_affectation")
+            prenable = extra.get("prenable")
+            code_type_etat_materiel = extra.get("code_type_etat_materiel")
+            date_situation = extra.get("date_situation")
+            situation_est_bloque = extra.get("situation_est_bloque")
+            type_situation_id = extra.get("type_situation_id")
+
+            existing_count = Affectation_Materiel.objects.filter(code_materiel=instance).count()
+            code_affectation = f"{instance.code_materiel}.{(existing_count + 1):03d}"
+
+            affectation = Affectation_Materiel.objects.create(
+                code_affectation=code_affectation,
+                code_materiel=instance,
+                code_filiale_mere=instance.code_filiale_g,
+                code_site_id=code_site if code_site else None,
+                date_affectation=date_affectation or timezone.now(),
+                date_debut_affectation=date_debut_affectation,
+                date_fin_affectation=date_fin_affectation,
+                prenable=bool(prenable),
+                user_id=instance.user_id,
+            )
+
+            if type_situation_id:
+                type_situation = Type_Situation.objects.get(id=type_situation_id)
+            else:
+                type_situation = Type_Situation.objects.get(code_type_situation="CREATION")
+
+            type_etat = Type_Etat_Materiel.objects.get(
+                code_type_etat_materiel=code_type_etat_materiel or "NEUF"
+            )
+
+            Situation_Materiel.objects.create(
+                affectation_id=affectation,
+                type_situation_id=type_situation,
+                code_type_etat_materiel=type_etat,
+                date_situation=date_situation or timezone.now(),
+                est_bloque=bool(situation_est_bloque),
+                user_id=instance.user_id,
+            )
+
+            log_action(
+                user=self.request.user,
+                action=JournalActions.CREATE,
+                module=self.journal_module,
+                objet_type=self.journal_objet_type,
+                objet_id=instance.pk,
+                nouvelle_valeur=self._serialize_instance(instance),
+                request=self.request,
+                code_filiale=self._get_filiale_code(instance),
+                code_site=self._get_site_code(instance),
+                description=f"Création de {self.journal_objet_type}",
+            )
 
 
 class MarqueMaterielViewSet(JournalisedModelViewSet):

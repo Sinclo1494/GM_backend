@@ -77,6 +77,9 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
         code_sous_famille = request.query_params.get("code_sous_famille")
         code_type_marque = request.query_params.get("code_type_marque")
         code_filiale = request.query_params.get("code_filiale")
+        libelle_famille = request.query_params.get("libelle_famille")
+        libelle_categorie = request.query_params.get("libelle_categorie")
+        libelle_marque = request.query_params.get("libelle_marque")
         est_bloque = request.query_params.get("est_bloque")
 
         if code_materiel:
@@ -93,6 +96,18 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
             queryset = queryset.filter(code_type_marque__code_type_marque__icontains=code_type_marque)
         if code_filiale:
             queryset = queryset.filter(code_filiale_g__code_filiale__icontains=code_filiale)
+        if libelle_famille:
+            queryset = queryset.filter(
+                code_sous_famille_materiel__code_famille_materiel__libelle_famille__icontains=libelle_famille
+            )
+        if libelle_categorie:
+            queryset = queryset.filter(
+                code_sous_famille_materiel__code_famille_materiel__code_categorie_gm__libelle_categorie__icontains=libelle_categorie
+            )
+        if libelle_marque:
+            queryset = queryset.filter(
+                code_type_marque__code_marque__libelle_marque__icontains=libelle_marque
+            )
         if est_bloque is not None:
             queryset = queryset.filter(est_bloque=est_bloque.lower() == "true")
         return queryset

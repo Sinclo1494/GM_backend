@@ -24,7 +24,6 @@ from .models import UserProfile
 
 User = get_user_model()
 
-User = get_user_model()
 
 
 class JournalSerializer(serializers.ModelSerializer):
@@ -41,6 +40,25 @@ class JournalSerializer(serializers.ModelSerializer):
 
 
 class GrandMaterielSerializer(serializers.ModelSerializer):
+    libelle_famille = serializers.CharField(
+        source="code_sous_famille_materiel.code_famille_materiel.libelle_famille",
+        read_only=True,
+        default=None,
+        allow_null=True,
+    )
+    libelle_categorie = serializers.CharField(
+        source="code_sous_famille_materiel.code_famille_materiel.code_categorie_gm.libelle_categorie",
+        read_only=True,
+        default=None,
+        allow_null=True,
+    )
+    libelle_marque = serializers.CharField(
+        source="code_type_marque.code_marque.libelle_marque",
+        read_only=True,
+        default=None,
+        allow_null=True,
+    )
+
     class Meta:
         model = Grand_Materiel
         fields = "__all__"

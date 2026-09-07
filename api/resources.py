@@ -37,6 +37,9 @@ def normalize_datetime(value):
 
     value = value.strip()
 
+    if not value:
+        return None
+
     # SQL Server can export 7 fractional digits; Python accepts up to 6.
     if "." in value:
         date_part, frac = value.split(".", 1)

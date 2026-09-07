@@ -26,6 +26,8 @@ class CsvNormalizer:
             return ""
 
         value = value.strip()
+        if not value:
+            return ""
 
         # Remove SQL Server milliseconds
         if "." in value:
@@ -42,15 +44,19 @@ class CsvNormalizer:
             "1 234,56"  -> "1234.56"
             "12,5"      -> "12.5"
             " 45 "      -> "45"
-            "-"         -> "0.0"
+            "-"         -> raises CsvNormalizationError
             ""          -> ""
         """
 
         if not value:
             return ""
+        if value.strip() == "-":
+            raise CsvNormalizationError(
+                "La valeur '-' n'est pas valide pour un montant décimal. "
+                "Utilisez une chaîne vide pour les valeurs manquantes."
+            )
         value = (value.replace("\xa0", "")  # non-breaking spaces
                  .replace(" ", "")
-                 .replace("-","0")
                  .replace(",", ".")
                  .strip())
         try:
@@ -190,6 +196,10 @@ class CsvNormalizer:
                 if not source_row or not any(
                     value.strip() for value in source_row
                 ):
+                    continue
+
+                # Skip CSV header row if it matches expected headers
+                if [cell.strip() for cell in source_row] == list(expected_headers):
                     continue
 
                 normalized_row = []

@@ -132,6 +132,10 @@ class CsvNormalizer:
 
                 source_row = [cell.strip() for cell in source_row]
 
+                # Skip CSV header row if it matches expected headers
+                if source_row == list(expected_headers):
+                    continue
+
                 normalized_row = []
 
                 for field in expected_headers:

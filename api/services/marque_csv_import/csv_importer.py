@@ -60,6 +60,7 @@ class MarqueCsvImporter:
             )
 
         rows = payload.get("rows", [])
+        filiale = payload.get("filiale")
         summary = payload.get("summary", {})
         filename = payload.get("filename", "")
 
@@ -88,6 +89,7 @@ class MarqueCsvImporter:
             return {
                 "success": True,
                 "imported_rows": 0,
+                "filiale": filiale,
                 "filename": filename,
                 "validation_summary": summary,
             }
@@ -133,6 +135,7 @@ class MarqueCsvImporter:
         return {
             "success": True,
             "imported_rows": len(objects),
+            "filiale": filiale,
             "filename": filename,
             "validation_summary": summary,
         }
