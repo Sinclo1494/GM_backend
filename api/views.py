@@ -31,6 +31,8 @@ from .services.gm_csv_import.gm_schema import GRAND_MATERIEL_SCHEMA
 from .services.marque_csv_import.marque_schema import MARQUE_MATERIEL_SCHEMA
 from .services.type_marque_csv_import.type_marque_schema import TYPE_MARQUE_SCHEMA
 from .services.sous_famille_csv_import.sous_famille_schema import SOUS_FAMILLE_SCHEMA
+from .services.famille_csv_import.famille_schema import FAMILLE_SCHEMA
+from .services.categorie_gm_csv_import.categorie_gm_schema import CATEGORIE_GM_SCHEMA
 from .services.situation_affectation_csv_import.situation_affectation_schema import SITUATION_AFFECTATION_SCHEMA
 from .services.site_csv_import.site_schema import SITE_SCHEMA
 from .services.regularisation_csv_import.regularisation_schema import REGULARISATION_GM_SCHEMA
@@ -60,6 +62,16 @@ from .services.sous_famille_csv_import.csv_importer import (
     SousFamilleValidationExpiredError,
     SousFamilleImportError
 )
+from .services.famille_csv_import.csv_importer import (
+    FamilleCsvImporter,
+    FamilleValidationExpiredError,
+    FamilleImportError
+)
+from .services.categorie_gm_csv_import.csv_importer import (
+    CategorieGMCsvImporter,
+    CategorieGMValidationExpiredError,
+    CategorieGMImportError
+)
 from .services.situation_affectation_csv_import.csv_importer import (
     SituationAffectationCsvImporter,
     SituationAffectationValidationExpiredError,
@@ -88,6 +100,8 @@ from api.services import (
     MarqueCsvValidator,
     TypeMarqueCsvValidator,
     SousFamilleCsvValidator,
+    FamilleCsvValidator,
+    CategorieGMCsvValidator,
     SituationAffectationCsvValidator,
     SiteCsvValidator,
     RegularisationGMCsvValidator,
@@ -1827,6 +1841,344 @@ class ImportSousFamilleView(PagePermissionRequiredMixin, APIView):
         # -----------------------------------------------------
         # 3. Successful import
         # -----------------------------------------------------
+
+        return Response(
+            {
+                **result,
+                "message": "Import terminé avec succès.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ValidateFamilleView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.famille"
+
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+
+        file = request.FILES.get("file")
+
+        if file is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun fichier reçu.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw_mapping = request.POST.get("mapping")
+
+        if not raw_mapping:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            mapping = json.loads(raw_mapping)
+        except (json.JSONDecodeError, TypeError):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(mapping, dict):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            validator = FamilleCsvValidator(
+                uploaded_file=file,
+                schema=FAMILLE_SCHEMA,
+                mapping=mapping,
+            )
+
+            report = validator.validate()
+
+        except Exception as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        response_data = report.to_dict()
+
+        if report.success:
+
+            validation_id = ValidationCache.save(
+                report=report,
+                filiale='',
+                filename=file.name,
+            )
+
+            response_data["validation_id"] = validation_id
+
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class ImportFamilleView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.famille"
+
+    parser_classes = [JSONParser]
+
+    def post(self, request):
+
+        validation_id = request.data.get("validation_id")
+
+        if not validation_id:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "L'identifiant de validation est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            importer = FamilleCsvImporter(
+                validation_id=validation_id,
+            )
+
+            result = importer.import_data()
+
+            try:
+                log_csv_import(
+                    request,
+                    result,
+                    JournalModules.FAMILLE,
+                )
+            except Exception:
+                pass
+
+        except FamilleValidationExpiredError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_410_GONE,
+            )
+
+        except FamilleImportError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        except Exception:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Une erreur inattendue est survenue "
+                        "pendant l'import."
+                    ),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {
+                **result,
+                "message": "Import terminé avec succès.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ValidateCategorieGMView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.categorie_gm"
+
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+
+        file = request.FILES.get("file")
+
+        if file is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun fichier reçu.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw_mapping = request.POST.get("mapping")
+
+        if not raw_mapping:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            mapping = json.loads(raw_mapping)
+        except (json.JSONDecodeError, TypeError):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(mapping, dict):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            validator = CategorieGMCsvValidator(
+                uploaded_file=file,
+                schema=CATEGORIE_GM_SCHEMA,
+                mapping=mapping,
+            )
+
+            report = validator.validate()
+
+        except Exception as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        response_data = report.to_dict()
+
+        if report.success:
+
+            validation_id = ValidationCache.save(
+                report=report,
+                filiale='',
+                filename=file.name,
+            )
+
+            response_data["validation_id"] = validation_id
+
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class ImportCategorieGMView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.categorie_gm"
+
+    parser_classes = [JSONParser]
+
+    def post(self, request):
+
+        validation_id = request.data.get("validation_id")
+
+        if not validation_id:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "L'identifiant de validation est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            importer = CategorieGMCsvImporter(
+                validation_id=validation_id,
+            )
+
+            result = importer.import_data()
+
+            try:
+                log_csv_import(
+                    request,
+                    result,
+                    JournalModules.CATEGORIE,
+                )
+            except Exception:
+                pass
+
+        except CategorieGMValidationExpiredError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_410_GONE,
+            )
+
+        except CategorieGMImportError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        except Exception:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Une erreur inattendue est survenue "
+                        "pendant l'import."
+                    ),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         return Response(
             {

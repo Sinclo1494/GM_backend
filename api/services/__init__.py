@@ -14,6 +14,10 @@ from .type_marque_csv_import import TypeMarqueCsvValidator
 from .type_marque_csv_import import TypeMarqueCsvImporter
 from .sous_famille_csv_import import SousFamilleCsvValidator 
 from .sous_famille_csv_import import SousFamilleCsvImporter
+from .famille_csv_import import FamilleCsvValidator 
+from .famille_csv_import import FamilleCsvImporter
+from .categorie_gm_csv_import import CategorieGMCsvValidator 
+from .categorie_gm_csv_import import CategorieGMCsvImporter
 from .situation_affectation_csv_import import SituationAffectationCsvValidator
 from .situation_affectation_csv_import import SituationAffectationCsvImporter
 from .site_csv_import import SiteCsvValidator

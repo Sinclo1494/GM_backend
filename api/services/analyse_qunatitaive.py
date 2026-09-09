@@ -255,7 +255,7 @@ class AnalyseQuantitativeResume:
         for row in rows:
             nbr_total += row["nbr"]
             age_total += row["age_total"]
-            if age_total > 0:
+            if row["age_total"] > 0:
                 devider += row["nbr"]
 
             exp_service += row["exploitation"]["en_service"]
