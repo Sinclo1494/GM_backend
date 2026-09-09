@@ -19,6 +19,36 @@ from django.urls import path, include
 
 from rest_framework import routers
 from api import views
+from api.views import (
+    pointage_upload_view,
+    situation_upload_view,
+    TP_AQ_API_View,
+    TP_AQ_resume_API_View,
+    TP_AE_API_View,
+    TP_AE_resume_API_View,
+    ValidatePointageView,
+    ImportPointageView,
+    ValidateGrandMaterielView,
+    ImportGrandMaterielView,
+    ValidateMarqueView,
+    ImportMarqueView,
+    ValidateTypeMarqueView,
+    ImportTypeMarqueView,
+    ValidateSousFamilleView,
+    ImportSousFamilleView,
+    ValidateFamilleView,
+    ImportFamilleView,
+    ValidateCategorieGMView,
+    ImportCategorieGMView,
+    ValidateSituationAffectationView,
+    ImportSituationAffectationView,
+    ValidateSiteView,
+    ImportSiteView,
+    ValidateRegularisationGMView,
+    ImportRegularisationGMView,
+    DashboardAPIView,
+    DashboardMaterialDetailsAPIView,
+    )
 
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -46,11 +76,44 @@ router.register(r'pointage', views.PointageViewSet, 'pointage')
 router.register(r'regularisation-gm', views.RegularisationGMViewSet, 'regularisation-gm')
 router.register(r'regularisation-mois-gm2', views.RegularisationMoisGM2ViewSet, 'regularisation-mois-gm2')
 router.register(r'site', views.SiteViewSet, 'site')
+router.register(r'journal', views.JournalViewSet, 'journal')
+router.register(r'users', views.UserViewSet, 'users')
+
+
+
 
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
+    path('api/pointage-validate/', ValidatePointageView.as_view(), name='validate_pointage'),
+    path('api/pointage-import/', ImportPointageView.as_view(), name='import_pointage'),
+    path('api/gm-validate/', ValidateGrandMaterielView.as_view(), name='validate_gm'),
+    path('api/gm-import/', ImportGrandMaterielView.as_view(), name='import_gm'),
+    path('api/marque-validate/', ValidateMarqueView.as_view(), name='validate_marque'),
+    path('api/marque-import/', ImportMarqueView.as_view(), name='import_marque'),
+    path('api/type-marque-validate/', ValidateTypeMarqueView.as_view(), name='validate_type_marque'),
+    path('api/type-marque-import/', ImportTypeMarqueView.as_view(), name='import_type_marque'),
+    path('api/sous-famille-validate/', ValidateSousFamilleView.as_view(), name='validate_sous_famille'),
+    path('api/sous-famille-import/', ImportSousFamilleView.as_view(), name='import_sous_famille'),
+    path('api/famille-validate/', ValidateFamilleView.as_view(), name='validate_famille'),
+    path('api/famille-import/', ImportFamilleView.as_view(), name='import_famille'),
+    path('api/categorie-gm-validate/', ValidateCategorieGMView.as_view(), name='validate_categorie_gm'),
+    path('api/categorie-gm-import/', ImportCategorieGMView.as_view(), name='import_categorie_gm'),
+    path('api/situation-affectation-validate/', ValidateSituationAffectationView.as_view(), name='validate_situation_affectation'),
+    path('api/situation-affectation-import/', ImportSituationAffectationView.as_view(), name='import_situation_affectation'),
+    path('api/site-validate/', ValidateSiteView.as_view(), name='validate_site'),
+    path('api/site-import/', ImportSiteView.as_view(), name='import_site'),
+    path('api/regularisation-gm-validate/', ValidateRegularisationGMView.as_view(), name='validate_regularisation_gm'),
+    path('api/regularisation-gm-import/', ImportRegularisationGMView.as_view(), name='import_regularisation_gm'),
+    path('api/pointage-upload/', pointage_upload_view),
+    path('api/situation-upload/', situation_upload_view),
+    path('api/aqtp/', TP_AQ_API_View.as_view()),
+    path('api/aqtpr/', TP_AQ_resume_API_View.as_view()),
+    path('api/aetp/', TP_AE_API_View.as_view()),
+    path('api/aetpr/', TP_AE_resume_API_View.as_view()),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/dashboard/', DashboardAPIView.as_view(), name='dashboard'),
+    path('api/dashboard/material-details/', DashboardMaterialDetailsAPIView.as_view(), name='dashboard_material_details'),
 ]

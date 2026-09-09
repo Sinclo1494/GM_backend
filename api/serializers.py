@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from .models import Journal
 from .models import Grand_Materiel
 from .models import Marque_Materiel
 from .models import Type_Marque
@@ -18,10 +20,45 @@ from .models import Pointage
 from .models import Regularisation_GM
 from .models import Regularisation_Mois_GM2
 from .models import Site
+from .models import UserProfile
 
+User = get_user_model()
+
+
+
+class JournalSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
+
+    def get_user(self, obj):
+        if obj.user:
+            return {"id": obj.user.id, "username": obj.user.username}
+        return None
+
+    class Meta:
+        model = Journal
+        fields = "__all__"
 
 
 class GrandMaterielSerializer(serializers.ModelSerializer):
+    libelle_famille = serializers.CharField(
+        source="code_sous_famille_materiel.code_famille_materiel.libelle_famille",
+        read_only=True,
+        default=None,
+        allow_null=True,
+    )
+    libelle_categorie = serializers.CharField(
+        source="code_sous_famille_materiel.code_famille_materiel.code_categorie_gm.libelle_categorie",
+        read_only=True,
+        default=None,
+        allow_null=True,
+    )
+    libelle_marque = serializers.CharField(
+        source="code_type_marque.code_marque.libelle_marque",
+        read_only=True,
+        default=None,
+        allow_null=True,
+    )
+
     class Meta:
         model = Grand_Materiel
         fields = "__all__"
@@ -62,55 +99,90 @@ class TypeAffectationSerializer(serializers.ModelSerializer):
         model = Type_Affectation
         fields = "__all__"
 
+
 class TypeSituationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Type_Situation
         fields = "__all__"
+
 
 class TypeEtatMaterielSerializer(serializers.ModelSerializer):
     class Meta:
         model = Type_Etat_Materiel
         fields = "__all__"
 
+
 class SituationMaterielSerializer(serializers.ModelSerializer):
+    code_affectation = serializers.CharField(
+        source="affectation_id.code_affectation", read_only=True
+    )
+    code_type_affectation = serializers.CharField(
+        source="type_situation_id.code_type_affectation", read_only=True
+    )
+    code_type_situation = serializers.CharField(
+        source="type_situation_id.code_type_situation", read_only=True
+    )
+    etat_materiel = serializers.CharField(
+        source="code_type_etat_materiel.code_type_etat_materiel", read_only=True
+    )
+    filiale = serializers.CharField(
+        source="affectation_id.code_filiale_mere", read_only=True
+    )
+    site = serializers.CharField(source="affectation_id.code_site", read_only=True)
+
     class Meta:
         model = Situation_Materiel
         fields = "__all__"
+
 
 class EntrepriseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Entreprise
         fields = "__all__"
 
+
 class FilialeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Filiale
         fields = "__all__"
+
 
 class AffectationMaterielSerializer(serializers.ModelSerializer):
     class Meta:
         model = Affectation_Materiel
         fields = "__all__"
 
+
 class DivisionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Division
         fields = "__all__"
+
 
 class FamilleStructuresSerializer(serializers.ModelSerializer):
     class Meta:
         model = Famille_Structures
         fields = "__all__"
 
+
 class PointageSerializer(serializers.ModelSerializer):
+    code_affectation = serializers.CharField(
+        source="affectation_id.code_affectation", read_only=True
+    )
+    code_materiel = serializers.CharField(
+        source="affectation_id.code_materiel.code_materiel", read_only=True
+    )
+
     class Meta:
         model = Pointage
         fields = "__all__"
+
 
 class RegularisationGMSerializer(serializers.ModelSerializer):
     class Meta:
         model = Regularisation_GM
         fields = "__all__"
+
 
 class RegularisationMoisGM2Serializer(serializers.ModelSerializer):
     class Meta:
@@ -122,3 +194,52 @@ class SiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Site
         fields = "__all__"
+
+
+class UserSerializer(serializers.ModelSerializer):
+    is_superuser = serializers.BooleanField(read_only=True)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    permissions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "first_name",
+            "last_name",
+            "email",
+            "is_active",
+            "is_superuser",
+            "date_joined",
+            "password",
+            "permissions",
+        ]
+
+    def get_permissions(self, obj):
+        profile = getattr(obj, "profile", None)
+        return list(profile.permissions) if profile else []
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = ["permissions"]
+
+
+class UserPreferencesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = ["default_landing_page", "remember_last_visited_page", "last_visited_page"]
+
+
+class CurrentUserSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    username = serializers.CharField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    email = serializers.EmailField()
+    is_active = serializers.BooleanField()
+    is_superuser = serializers.BooleanField()
+    permissions = serializers.ListField(child=serializers.CharField())
+
