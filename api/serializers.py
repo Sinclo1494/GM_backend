@@ -58,6 +58,24 @@ class GrandMaterielSerializer(serializers.ModelSerializer):
         default=None,
         allow_null=True,
     )
+    libelle_filiale = serializers.CharField(
+        source="code_filiale_g.libelle_filiale",
+        read_only=True,
+        default=None,
+        allow_null=True,
+    )
+    libelle_sous_famille = serializers.CharField(
+        source="code_sous_famille_materiel.libelle_sous_famille",
+        read_only=True,
+        default=None,
+        allow_null=True,
+    )
+    libelle_type_marque = serializers.CharField(
+        source="code_type_marque.libelle_type_marque",
+        read_only=True,
+        default=None,
+        allow_null=True,
+    )
 
     class Meta:
         model = Grand_Materiel

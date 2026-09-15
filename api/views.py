@@ -160,6 +160,7 @@ from .filters import (
     SituationMaterielFilter,
     GrandMaterielFilter,
     PointageFilter,
+    GrandMaterielOrderingFilter,
 )
 
 
@@ -374,13 +375,15 @@ class GrandMaterielViewSet(JournalisedModelViewSet):
     journal_filiale_field = "code_filiale_g"
     permission_required = ("gestion.grand_materiel", "analyse.journal_materiel")
     search_fields = ["code_materiel", "designation", "num_serie", "immatriculation"]
-    filter_backends = [OrderingFilter, GrandMaterielFilter]
+    filter_backends = [GrandMaterielOrderingFilter, GrandMaterielFilter]
     ordering_fields = [
         "code_materiel", "designation", "num_serie", "immatriculation",
-        "code_filiale_g", "code_sous_famille_materiel", "code_type_marque",
+        "code_filiale_g", "code_sous_famille", "code_type_marque",
         "date_acquisition", "valeur_acquisition", "valeur_remplacement",
         "taux_amortissement", "puissance_materiel", "est_bloque",
         "libelle_famille", "libelle_categorie", "libelle_marque",
+        "libelle_filiale",
+        "libelle_sous_famille", "libelle_type_marque",
     ]
     ordering = ["code_materiel"]
 
