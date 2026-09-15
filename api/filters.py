@@ -1,6 +1,53 @@
 from django.db.models import Q
 from rest_framework import filters
 
+
+def _date_filter_q(field: str, term: str) -> Q:
+    """Build a Q filter for a DateField from a flexible user term.
+
+    Accepts day, month, year in any order separated by / or - (e.g. "29",
+    "07", "29/07", "29/07/2025", "2025-07-29"). Numbers > 31 are treated as
+    years, numbers > 12 as days, and numbers <= 12 match either day or month.
+    """
+    q = Q()
+    parts = [p for p in term.replace("-", "/").split("/") if p.isdigit()]
+    for raw in parts:
+        n = int(raw)
+        if n > 31:
+            q &= Q(**{f"{field}__year": n})
+        elif n > 12:
+            q &= Q(**{f"{field}__day": n})
+        else:
+            q &= (Q(**{f"{field}__day": n}) | Q(**{f"{field}__month": n}))
+    return q
+
+
+class GrandMaterielOrderingFilter(filters.OrderingFilter):
+    ordering_field_map = {
+        "libelle_famille": "code_sous_famille_materiel__code_famille_materiel__libelle_famille",
+        "libelle_categorie": "code_sous_famille_materiel__code_famille_materiel__code_categorie_gm__libelle_categorie",
+        "libelle_marque": "code_type_marque__code_marque__libelle_marque",
+        "libelle_filiale": "code_filiale_g__libelle_filiale",
+        "libelle_sous_famille": "code_sous_famille_materiel__libelle_sous_famille",
+        "libelle_type_marque": "code_type_marque__libelle_type_marque",
+        "code_filiale_g": "code_filiale_g__code_filiale",
+        "code_sous_famille": "code_sous_famille_materiel__code_sous_famille",
+        "code_type_marque": "code_type_marque__code_type_marque",
+    }
+
+    def get_ordering(self, request, queryset, view):
+        ordering = super().get_ordering(request, queryset, view)
+        if not ordering:
+            return ordering
+        mapped = []
+        for field in ordering:
+            descending = field.startswith("-")
+            clean_field = field.lstrip("-")
+            mapped_field = self.ordering_field_map.get(clean_field, clean_field)
+            mapped.append(f"-{mapped_field}" if descending else mapped_field)
+        return mapped
+
+
 class AffectationMaterielFilter(filters.BaseFilterBackend):
     def filter_queryset(self, request, queryset, view):
         code_affectation = request.query_params.get("code_affectation")
@@ -29,6 +76,7 @@ class AffectationMaterielFilter(filters.BaseFilterBackend):
         if prenable is not None:
             queryset = queryset.filter(prenable=prenable.lower() == "true")
         return queryset
+
 
 class SituationMaterielFilter(filters.BaseFilterBackend):
     def filter_queryset(self, request, queryset, view):
@@ -68,6 +116,7 @@ class SituationMaterielFilter(filters.BaseFilterBackend):
             queryset = queryset.filter(est_bloque=est_bloque.lower() == "true")
         return queryset
 
+
 class GrandMaterielFilter(filters.BaseFilterBackend):
     def filter_queryset(self, request, queryset, view):
         code_materiel = request.query_params.get("code_materiel")
@@ -76,11 +125,19 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
         immatriculation = request.query_params.get("immatriculation")
         code_sous_famille = request.query_params.get("code_sous_famille")
         code_type_marque = request.query_params.get("code_type_marque")
+        libelle_sous_famille = request.query_params.get("libelle_sous_famille")
+        libelle_type_marque = request.query_params.get("libelle_type_marque")
         code_filiale = request.query_params.get("code_filiale")
+        libelle_filiale = request.query_params.get("libelle_filiale")
         libelle_famille = request.query_params.get("libelle_famille")
         libelle_categorie = request.query_params.get("libelle_categorie")
         libelle_marque = request.query_params.get("libelle_marque")
         est_bloque = request.query_params.get("est_bloque")
+        date_acquisition = request.query_params.get("date_acquisition")
+        valeur_acquisition = request.query_params.get("valeur_acquisition")
+        valeur_remplacement = request.query_params.get("valeur_remplacement")
+        taux_amortissement = request.query_params.get("taux_amortissement")
+        puissance_materiel = request.query_params.get("puissance_materiel")
 
         if code_materiel:
             queryset = queryset.filter(code_materiel__icontains=code_materiel)
@@ -94,8 +151,14 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
             queryset = queryset.filter(code_sous_famille_materiel__code_sous_famille__icontains=code_sous_famille)
         if code_type_marque:
             queryset = queryset.filter(code_type_marque__code_type_marque__icontains=code_type_marque)
+        if libelle_sous_famille:
+            queryset = queryset.filter(code_sous_famille_materiel__libelle_sous_famille__icontains=libelle_sous_famille)
+        if libelle_type_marque:
+            queryset = queryset.filter(code_type_marque__libelle_type_marque__icontains=libelle_type_marque)
         if code_filiale:
             queryset = queryset.filter(code_filiale_g__code_filiale__icontains=code_filiale)
+        if libelle_filiale:
+            queryset = queryset.filter(code_filiale_g__libelle_filiale__icontains=libelle_filiale)
         if libelle_famille:
             queryset = queryset.filter(
                 code_sous_famille_materiel__code_famille_materiel__libelle_famille__icontains=libelle_famille
@@ -108,9 +171,20 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
             queryset = queryset.filter(
                 code_type_marque__code_marque__libelle_marque__icontains=libelle_marque
             )
+        if date_acquisition:
+            queryset = queryset.filter(_date_filter_q("date_acquisition", date_acquisition))
+        if valeur_acquisition:
+            queryset = queryset.filter(valeur_acquisition__icontains=valeur_acquisition)
+        if valeur_remplacement:
+            queryset = queryset.filter(valeur_remplacement__icontains=valeur_remplacement)
+        if taux_amortissement:
+            queryset = queryset.filter(taux_amortissement__icontains=taux_amortissement)
+        if puissance_materiel:
+            queryset = queryset.filter(puissance_materiel__icontains=puissance_materiel)
         if est_bloque is not None:
             queryset = queryset.filter(est_bloque=est_bloque.lower() == "true")
         return queryset
+
 
 class PointageFilter(filters.BaseFilterBackend):
     def filter_queryset(self, request, queryset, view):

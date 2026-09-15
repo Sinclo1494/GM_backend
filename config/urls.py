@@ -15,7 +15,9 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from django.http import JsonResponse
 from django.urls import path, include
+from django.db import connection
 
 from rest_framework import routers
 from api import views
@@ -48,7 +50,7 @@ from api.views import (
     ImportRegularisationGMView,
     DashboardAPIView,
     DashboardMaterialDetailsAPIView,
-    )
+)
 
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -80,11 +82,22 @@ router.register(r'journal', views.JournalViewSet, 'journal')
 router.register(r'users', views.UserViewSet, 'users')
 
 
+def health_check(request):
+    db_ok = True
+    try:
+        connection.ensure_connection()
+    except Exception:
+        db_ok = False
 
+    return JsonResponse({
+        "status": "ok" if db_ok else "degraded",
+        "database": "ok" if db_ok else "error",
+    })
 
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('health/', health_check, name='health_check'),
     path('api/', include(router.urls)),
     path('api/pointage-validate/', ValidatePointageView.as_view(), name='validate_pointage'),
     path('api/pointage-import/', ImportPointageView.as_view(), name='import_pointage'),
