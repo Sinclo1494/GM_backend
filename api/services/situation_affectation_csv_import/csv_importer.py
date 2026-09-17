@@ -1,10 +1,12 @@
 import re
 
+from django.conf import settings
 from django.db import (
     IntegrityError,
     transaction,
 )
 from django.db.models import Max
+from django.utils import timezone
 
 from api.models import (
     Affectation_Materiel,
@@ -245,6 +247,18 @@ class SituationAffectationCsvImporter:
 
         return f"{self.last_situation_number:06d}"
 
+    @staticmethod
+    def normalize_row_datetime(value):
+
+        if (
+            value is None
+            or not settings.USE_TZ
+            or timezone.is_aware(value)
+        ):
+            return value
+
+        return timezone.make_aware(value)
+
     def get_or_create_affectation(
         self,
         row,
@@ -336,6 +350,19 @@ class SituationAffectationCsvImporter:
                 batch = []
 
                 for row in rows:
+
+                    row = {
+                        **row,
+                        "date_affectation": self.normalize_row_datetime(
+                            row.get("date_affectation"),
+                        ),
+                        "date_situation": self.normalize_row_datetime(
+                            row.get("date_situation"),
+                        ),
+                        "date_modification": self.normalize_row_datetime(
+                            row.get("date_modification"),
+                        ),
+                    }
 
                     # -----------------------------------------
                     # Find or create affectation
