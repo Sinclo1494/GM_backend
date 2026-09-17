@@ -40,7 +40,7 @@ REGULARISATION_GM_SCHEMA = CsvSchema([
         validator=decimal(
             max_digits=20,
             decimal_places=4,
-            positive=True,
+            positive=False,
         ),
     ),
 

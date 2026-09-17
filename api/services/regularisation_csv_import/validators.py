@@ -213,7 +213,7 @@ def date(*formats):
 # ---------------------------------------------------------
 
 def integer(
-    positive=True,
+    positive=False,
     min_value=None,
     max_value=None,
 ):
@@ -287,7 +287,7 @@ def integer(
 def decimal(
     max_digits,
     decimal_places,
-    positive=True,
+    positive=False,
     min_value=None,
     max_value=None,
 ):
