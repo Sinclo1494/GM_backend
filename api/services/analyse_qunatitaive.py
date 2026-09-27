@@ -93,7 +93,6 @@ class AnalyseQuantitative:
                 "affectation_id__code_materiel__code_sous_famille_materiel__code_famille_materiel__code_categorie_gm__libelle_categorie"
             ),
             date_acquisition=F("affectation_id__code_materiel__date_acquisition"),
-            prenable=F("affectation_id__prenable"),
             code_type_situation=F("type_situation_id__code_type_situation"),
             libelle_type_situation=F("type_situation_id__libelle_type_situation"),
             code_type_affectation=F(
@@ -105,7 +104,6 @@ class AnalyseQuantitative:
         )
 
         situations = situations.filter(
-            prenable=True,
             code_filiale=code_filiale,
         ).exclude(code_type_affectation__in=["06", "07"])
 
