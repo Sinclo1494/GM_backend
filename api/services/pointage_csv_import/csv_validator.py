@@ -54,9 +54,7 @@ class PointageCsvValidator:
                 self.normalize_affectation_date(a.date_affectation),
                 a.code_site.code_site,
             ): a.id
-            for a in Affectation_Materiel.objects.filter(
-                code_filiale_mere=self.filiale
-            ).select_related(
+            for a in Affectation_Materiel.objects.select_related(
                 "code_materiel",
                 "code_site",
             )
