@@ -161,6 +161,34 @@ class SituationAffectationCsvValidator:
                 report.increment_invalid()
                 continue
 
+            # Ignore rows already encountered earlier
+            # in the current CSV file.
+            duplicate_key = (
+                cleaned["code_materiel"],
+                cleaned["code_site"],
+                cleaned["date_affectation"],
+                cleaned["code_type_affectation"],
+                cleaned["code_type_situation"],
+                cleaned["code_type_etat_materiel"],
+                cleaned["date_situation"],
+            )
+
+            if duplicate_key in self.seen_rows:
+
+                report.increment_skipped()
+                report.add_warning(
+                    line=line_number,
+                    message=(
+                        "Doublon dans le fichier CSV. "
+                        f"Première occurrence ligne "
+                        f"{self.seen_rows[duplicate_key]}. "
+                        "Ligne ignorée."
+                    ),
+                )
+                continue
+
+            self.seen_rows[duplicate_key] = line_number
+
             self.validate_business_rules(
                 row=cleaned,
                 report=report,
@@ -271,35 +299,6 @@ class SituationAffectationCsvValidator:
                     f"n'existe pas."
                 ),
             )
-
-        # -----------------------------------------------------
-        # Duplicate
-        # -----------------------------------------------------
-
-        duplicate_key = (
-            row["code_materiel"],
-            row["code_site"],
-            row["date_affectation"],
-            row["code_type_affectation"],
-            row["code_type_situation"],
-            row["code_type_etat_materiel"],
-            row["date_situation"],
-        )
-
-        if duplicate_key in self.seen_rows:
-
-            report.add_error(
-                line=line_number,
-                message=(
-                    "Doublon dans le fichier CSV. "
-                    f"Première occurrence ligne "
-                    f"{self.seen_rows[duplicate_key]}."
-                ),
-            )
-
-        else:
-
-            self.seen_rows[duplicate_key] = line_number
 
     # ---------------------------------------------------------
     # Warnings

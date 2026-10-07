@@ -19,6 +19,10 @@ from django.db.models.functions import Lead, Cast, Greatest, ExtractYear, Now, R
 from api.models import Grand_Materiel, Situation_Materiel, Affectation_Materiel
 from api.serializers import SituationMaterielSerializer
 
+# Type_Affectation codes that take a material out of the parc. "NON FOURNIE" is
+# one of those codes, not a libelle.
+EXCLUDED_TYPES_AFFECTATION = ("06", "07", "08", "NON FOURNIE")
+
 
 class AnalyseQuantitative:
 
@@ -28,57 +32,49 @@ class AnalyseQuantitative:
         date_debut,
         date_fin,
     ):
+        """Situation of every material *in force* during ``[date_debut, date_fin]``.
+
+        The period is a window, not a filter on the situation rows: a situation
+        recorded *before* ``date_debut`` that has no successor inside the period
+        is the material's state for the whole period (carry-forward), and only a
+        successor located inside the period supersedes it.
+
+        Every ordering is done on business dates -- ``date_situation`` inside an
+        affectation, ``date_situation`` then ``date_affectation`` to pick the
+        affectation of a material -- never on the insert id or on the ``.001`` /
+        ``.002`` suffix of ``code_affectation``, which is not chronological once
+        affectations are closed and re-opened. The primary key is only kept as a
+        last-resort tiebreak for rows sharing the exact same timestamp.
+
+        The subsidiary is the *affectation's* subsidiary
+        (``Affectation_Materiel.code_filiale_mere``), never the materiel's
+        ``code_filiale_g``: the two disagree as soon as a materiel is
+        transferred, and the analysis reports the parc as operated by a
+        subsidiary, that is per affectation. Reading it from the materiel both
+        dropped the affectations sitting in another subsidiary and attributed a
+        materiel to a subsidiary that does not hold it any more -- e.g.
+        ``A01020072`` is ``code_filiale_g = M`` while most of its affectations
+        are ``G``. A materiel affected in two subsidiaries contributes one row
+        to each of the two subsidiary reports.
+
+        The 06 / 07 / 08 / NON FOURNIE affectations are excluded on the row
+        retained for each material, once the in-force situation is known, so a
+        material whose latest state is one of them leaves the parc instead of
+        falling back on the predecessor that situation superseded. That
+        exclusion therefore happens while aggregating, not in the queryset: a
+        filter on the annotated `code_type_affectation` is folded into the inner
+        WHERE of the window query and would run before `ROW_NUMBER()`.
+        """
         situations = Situation_Materiel.objects.filter(
             date_situation__date__lte=date_fin,
         )
 
         situations = situations.annotate(
-            next_date=Window(
-                expression=Lead("date_situation"),
-                partition_by=[F("affectation_id__code_materiel")],
-                order_by=[
-                    F("date_situation").asc(),
-                    F("id").asc(),
-                ],
-            )
-        )
-
-        situations = situations.annotate(
-            date_deb_affectation=Greatest(
-                Cast("date_situation", output_field=DateField()),
-                Value(date_debut, output_field=DateField()),
-                output_field=DateField(),
-            )
-        )
-
-        situations = situations.annotate(
-            date_fin_affectation=Case(
-                When(
-                    next_date__date__range=(date_debut, date_fin),
-                    then=ExpressionWrapper(
-                        Cast(F("next_date"), DateField()) - Value(timedelta(days=1)),
-                        output_field=DateField(),
-                    ),
-                ),
-                When(
-                    next_date__isnull=True,
-                    then=Value(date_fin, output_field=DateField()),
-                ),
-                default=F("date_deb_affectation"),
-                output_field=DateField(),
-            )
-        )
-        situations = situations.filter(
-            Q(date_deb_affectation__lte=date_fin),
-            Q(date_fin_affectation__gte=date_debut),
-        )
-        situations = situations.annotate(
             code_materiel=F("affectation_id__code_materiel__code_materiel"),
-            code_filiale=F(
-                "affectation_id__code_materiel__code_filiale_g__code_filiale"
-            ),
+            code_affectation=F("affectation_id__code_affectation"),
+            code_filiale=F("affectation_id__code_filiale_mere__code_filiale"),
             libelle_filiale=F(
-                "affectation_id__code_materiel__code_filiale_g__libelle_filiale"
+                "affectation_id__code_filiale_mere__libelle_filiale"
             ),
             code_sous_famille=F(
                 "affectation_id__code_materiel__code_sous_famille_materiel"
@@ -105,15 +101,69 @@ class AnalyseQuantitative:
 
         situations = situations.filter(
             code_filiale=code_filiale,
-        ).exclude(code_type_affectation__in=["06", "07"])
+        )
 
+        # `next_date` chains the situations of a *single* affectation: a material
+        # affected twice (....001 then ....002) must not let a situation of the
+        # new affectation close the interval of a situation belonging to the
+        # previous one, otherwise the end of the interval is attributed to the
+        # wrong affectation / site. No situation is discarded before this point,
+        # 06/07/08 and NON FOURNIE included: one of them must still close the
+        # interval of the situation it supersedes.
+        situations = situations.annotate(
+            next_date=Window(
+                expression=Lead("date_situation"),
+                partition_by=[F("affectation_id")],
+                order_by=[
+                    F("date_situation").asc(),
+                    F("id").asc(),
+                ],
+            )
+        )
+
+        situations = situations.annotate(
+            date_deb_affectation=Greatest(
+                Cast("date_situation", output_field=DateField()),
+                Value(date_debut, output_field=DateField()),
+                output_field=DateField(),
+            )
+        )
+
+        # `default=date_fin` is the carry-forward rule: when the situation has
+        # no successor inside the period -- no next situation at all, or the
+        # next one predating `date_debut` -- it stays in force until the end of
+        # the period. Without it the interval collapsed onto `date_debut`
+        # itself, which made the period filter drop every material whose
+        # successor was dated exactly on the first day of the month.
+        situations = situations.annotate(
+            date_fin_affectation=Case(
+                When(
+                    next_date__date__range=(date_debut, date_fin),
+                    then=ExpressionWrapper(
+                        Cast(F("next_date"), DateField()) - Value(timedelta(days=1)),
+                        output_field=DateField(),
+                    ),
+                ),
+                default=Value(date_fin, output_field=DateField()),
+                output_field=DateField(),
+            )
+        )
+        situations = situations.filter(
+            Q(date_deb_affectation__lte=date_fin),
+            Q(date_fin_affectation__gte=date_debut),
+        )
+
+        # One row per material: the situation in force at the end of the period
+        # (most recent `date_situation`), attributed to the most recent
+        # `date_affectation` when several affectations carry a situation on the
+        # same day.
         situations = situations.annotate(
             rn=Window(
                 expression=RowNumber(),
                 partition_by=[F("affectation_id__code_materiel")],
                 order_by=[
-                    F("date_deb_affectation").desc(),
                     F("date_situation").desc(),
+                    F("affectation_id__date_affectation").desc(),
                     F("id").desc(),
                 ],
             )
@@ -138,12 +188,22 @@ class AnalyseQuantitative:
             "code_type_situation",
             "libelle_type_situation",
             "code_materiel",
+            "code_affectation",
             "age",
         )
 
         result = {}
 
         for s in situations:
+            # Parc exclusion on the row *retained* for the material, so it can
+            # only be applied here: an `exclude()` on the `code_type_affectation`
+            # annotation is folded into the inner WHERE by Django and therefore
+            # runs before `ROW_NUMBER()`, promoting the superseded predecessor
+            # back to rn=1 and keeping a material whose real state left the parc
+            # counted until `date_fin`.
+            if s["code_type_affectation"] in EXCLUDED_TYPES_AFFECTATION:
+                continue
+
             key = (
                 s["code_sous_famille"],
                 s["libelle_sous_famille"],
@@ -184,7 +244,13 @@ class AnalyseQuantitative:
             affectation = s["code_type_affectation"]
             situation = s["code_type_situation"]
 
-            # Exploitation
+            # Single exhaustive classifier: every counted material lands in
+            # exactly one bucket, so `nbr` always equals the sum of the
+            # sub-counters. Pairs outside the reference grid (e.g. an
+            # "Immobilisé" material carrying an "En rénovation" situation, or
+            # "Acquisition"/"Cession reçue" affectations) are routed into the
+            # Immobilisé "Autre" catch-all, mirroring the v2 dashboard's
+            # "autres" bucket.
             if affectation == "01":
                 if situation == "01":
                     row["exploitation"]["en_service"] += 1
@@ -192,8 +258,8 @@ class AnalyseQuantitative:
                     row["exploitation"]["en_chomage"] += 1
                 elif situation == "03":
                     row["exploitation"]["en_panne"] += 1
-
-            # Immobilisé
+                else:
+                    row["immobilise"]["autre"] += 1
             elif affectation == "04":
                 if situation == "02":
                     row["immobilise"]["en_chomage"] += 1
@@ -201,12 +267,17 @@ class AnalyseQuantitative:
                     row["immobilise"]["en_reparation"] += 1
                 elif situation == "05":
                     row["immobilise"]["autre"] += 1
-            #Réparation
+                else:
+                    row["immobilise"]["autre"] += 1
             elif affectation == "02":
                 if situation == "05":
                     row["reparation"]["autre"] += 1
                 elif situation == "06":
                     row["reparation"]["ALREM"] += 1
+                else:
+                    row["immobilise"]["autre"] += 1
+            else:
+                row["immobilise"]["autre"] += 1
         final_result = []
 
         for row in result.values():

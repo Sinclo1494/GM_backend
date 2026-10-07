@@ -262,7 +262,6 @@ class Affectation_Materiel_Resource(resources.ModelResource):
             "date_fin_affectation",
             "nbr_jours_affectation",
             "date_debut_affectation",
-            "prenable",
             "est_bloque",
         )
 

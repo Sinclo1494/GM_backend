@@ -71,6 +71,15 @@ DATABASES = {
     }
 }
 
+# Cache for the dashboard v2 aggregations (expensive rankings).
+# LocMemCache is the Django default; keep it per-process safe and cheap.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "dashboard-v2",
+    }
+}
+
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",

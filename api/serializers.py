@@ -190,6 +190,15 @@ class PointageSerializer(serializers.ModelSerializer):
     code_materiel = serializers.CharField(
         source="affectation_id.code_materiel.code_materiel", read_only=True
     )
+    code_site = serializers.CharField(
+        source="affectation_id.code_site.code_site", read_only=True
+    )
+    code_filiale = serializers.CharField(
+        source="affectation_id.code_filiale_mere.code_filiale", read_only=True
+    )
+    user = serializers.CharField(
+        source="user_id.username", read_only=True, default=None
+    )
 
     class Meta:
         model = Pointage
