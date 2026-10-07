@@ -7,7 +7,9 @@ from .analyse_exploitation import AnalyseExploitationResume
 from .pointage_csv_import import PointageCsvValidator 
 from .pointage_csv_import import PointageCsvImporter
 from .gm_csv_import import GMCsvValidator 
-from .gm_csv_import import GMCsvImporter
+from .gm_csv_import import GMCsvImporter 
+from .gm_csv_import import MaterielFilialeValidator
+from .gm_csv_import import MaterielFilialeCsvImporter
 from .marque_csv_import import MarqueCsvValidator 
 from .marque_csv_import import MarqueCsvImporter
 from .type_marque_csv_import import TypeMarqueCsvValidator 

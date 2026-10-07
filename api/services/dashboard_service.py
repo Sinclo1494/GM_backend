@@ -77,7 +77,7 @@ class DashboardService:
         pointage_evolution = DashboardService._get_pointage_evolution(
             code_filiale, date_debut, date_fin
         )
-        filiale_stats = DashboardService._get_filiale_stats(code_filiale)
+        filiale_stats = DashboardService._get_filiale_stats(code_filiale, date_fin)
         alerts = DashboardService._get_alerts(code_filiale)
         recent_activity = DashboardService._get_recent_activity()
 
@@ -379,7 +379,33 @@ class DashboardService:
         ]
 
     @staticmethod
-    def _get_filiale_stats(code_filiale):
+    def _filter_parc_by_type_affectation(qs, date_fin):
+        """Filter Grand_Materiel queryset to exclude materiel with latest situation
+        having type_affectation in 06, 07, 08 or libelle 'NON FOURNIE'."""
+        from django.db.models import OuterRef, Subquery, Q
+        from api.models import Situation_Materiel
+
+        latest_situation = Situation_Materiel.objects.filter(
+            affectation_id__code_materiel__code_materiel=OuterRef("code_materiel"),
+            date_situation__date__lte=date_fin,
+        ).order_by("-date_situation__date", "-id")
+
+        latest_type_affectation_code = Subquery(
+            latest_situation.values("type_situation_id__code_type_affectation__code_type_affectation")[:1]
+        )
+        latest_type_affectation_libelle = Subquery(
+            latest_situation.values("type_situation_id__code_type_affectation__libelle_type_affectation")[:1]
+        )
+
+        return qs.annotate(
+            latest_type_affectation_code=latest_type_affectation_code,
+            latest_type_affectation_libelle=latest_type_affectation_libelle,
+        ).exclude(
+            Q(latest_type_affectation_code__in=["06","07", "08"]) | Q(latest_type_affectation_libelle="NON FOURNIE")
+        )
+
+    @staticmethod
+    def _get_filiale_stats(code_filiale, date_fin=None):
         filiales = Filiale.objects.filter(est_bloque=False)
         if code_filiale:
             filiales = filiales.filter(code_filiale=code_filiale)
@@ -394,9 +420,10 @@ class DashboardService:
                 code_filiale_g__in=filiale_codes,
                 est_bloque=False,
             )
-            .values("code_filiale_g")
-            .annotate(totalMateriel=Count("id"))
         )
+        if date_fin:
+            gm_stats = DashboardService._filter_parc_by_type_affectation(gm_stats, date_fin)
+        gm_stats = gm_stats.values("code_filiale_g").annotate(totalMateriel=Count("id"))
 
         aff_stats = (
             Affectation_Materiel.objects.filter(
@@ -444,7 +471,6 @@ class DashboardService:
         pointages = Pointage.objects.filter(
             mmaa__range=(date_debut, date_fin),
             est_bloque=False,
-            affectation_id__prenable=True,
         )
 
         if code_filiale:
@@ -492,7 +518,6 @@ class DashboardService:
         pointages = Pointage.objects.filter(
             mmaa__range=(date_debut, date_fin),
             est_bloque=False,
-            affectation_id__prenable=True,
         )
 
         if code_filiale:
@@ -537,7 +562,6 @@ class DashboardService:
         pointages = Pointage.objects.filter(
             mmaa__range=(date_debut, date_fin),
             est_bloque=False,
-            affectation_id__prenable=True,
         )
 
         if code_filiale:
@@ -575,7 +599,6 @@ class DashboardService:
         potentiel_qs = Pointage.objects.filter(
             mmaa__range=(date_debut, date_fin),
             est_bloque=False,
-            affectation_id__prenable=True,
         )
         if code_filiale:
             potentiel_qs = potentiel_qs.filter(
@@ -624,6 +647,8 @@ class DashboardService:
         gm_qs = Grand_Materiel.objects.all()
         if code_filiale:
             gm_qs = gm_qs.filter(code_filiale_g=code_filiale)
+        # Filter by type_affectation: exclude 06, 07, 08 and NON FOURNIE
+        gm_qs = DashboardService._filter_parc_by_type_affectation(gm_qs, date_fin)
 
         situations = Situation_Materiel.objects.filter(
             date_situation__date__lte=date_fin,

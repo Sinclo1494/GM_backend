@@ -52,7 +52,13 @@ class CsvNormalizer:
             return value
 
     @staticmethod
-    def normalize(uploaded_file, schema, mapping, filiale=None):
+    def normalize(
+        uploaded_file,
+        schema,
+        mapping,
+        filiale=None,
+        allow_empty_code_filiale_g=False,
+    ):
 
         # ---------------------------------------------------------
         # 1. Validate mapping
@@ -243,6 +249,9 @@ class CsvNormalizer:
                             normalized_row.append(filiale)
 
                         # Neither CSV nor UI provided a value.
+                        elif allow_empty_code_filiale_g:
+                            normalized_row.append("")
+
                         else:
                             raise CsvNormalizationError(
                                 "Le champ 'code_filiale_g' est obligatoire. "

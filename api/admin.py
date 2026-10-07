@@ -231,7 +231,6 @@ class AffectationMaterielAdmin(ImportExportModelAdmin):
         "date_fin_affectation",
         "nbr_jours_affectation",
         "date_debut_affectation",
-        "prenable",
         "est_bloque",
         "user_id",
         "created_at",

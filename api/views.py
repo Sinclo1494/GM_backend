@@ -47,6 +47,11 @@ from .services.gm_csv_import.csv_importer import (
     GMValidationExpiredError,
     GrandMaterielImportError
 )
+from .services.gm_csv_import.materiel_filiale_importer import (
+    MaterielFilialeCsvImporter,
+    MaterielFilialeValidationExpiredError,
+    MaterielFilialeImportError
+)
 from .services.marque_csv_import.csv_importer import (
     MarqueCsvImporter,
     MarqueValidationExpiredError,
@@ -97,6 +102,7 @@ from api.services import (
     AnalyseExploitationResume,
     PointageCsvValidator,
     GMCsvValidator,
+    MaterielFilialeValidator,
     MarqueCsvValidator,
     TypeMarqueCsvValidator,
     SousFamilleCsvValidator,
@@ -107,6 +113,7 @@ from api.services import (
     RegularisationGMCsvValidator,
 )
 from api.services.dashboard_service import DashboardService
+from api.services.dashboard_v2_service import DashboardV2Service
 
 from .models import Journal
 from .models import Grand_Materiel
@@ -160,6 +167,7 @@ from .filters import (
     SituationMaterielFilter,
     GrandMaterielFilter,
     PointageFilter,
+    PointageOrderingFilter,
     GrandMaterielOrderingFilter,
 )
 
@@ -533,7 +541,16 @@ class SituationMaterielViewSet(JournalisedModelViewSet):
     permission_required = "gestion.situations"
     search_fields = ["id_situation", "affectation_id__code_materiel__code_materiel"]
     filter_backends = [OrderingFilter, SituationMaterielFilter]
-    ordering_fields = ["date_situation", "id_situation", "est_bloque"]
+    ordering_fields = [
+        "date_situation",
+        "id_situation",
+        "est_bloque",
+        "date_modification",
+        "affectation_id__code_affectation",
+        "type_situation_id__code_type_affectation",
+        "type_situation_id__code_type_situation",
+        "code_type_etat_materiel__code_type_etat_materiel",
+    ]
     ordering = ["-date_situation"]
 
 class EntrepriseViewSet(JournalisedModelViewSet):
@@ -567,7 +584,15 @@ class AffectationMaterielViewSet(JournalisedModelViewSet):
     permission_required = "gestion.affectations"
     search_fields = ["code_affectation", "code_materiel__code_materiel", "code_site__code_site"]
     filter_backends = [OrderingFilter, AffectationMaterielFilter]
-    ordering_fields = ["code_affectation", "date_affectation", "est_bloque", "prenable"]
+    ordering_fields = [
+        "code_affectation",
+        "date_affectation",
+        "est_bloque",
+        "nbr_jours_affectation",
+        "code_materiel__code_materiel",
+        "code_filiale_mere__code_filiale",
+        "code_site__code_site",
+    ]
     ordering = ["-date_affectation"]
 
 class DivisionViewSet(JournalisedModelViewSet):
@@ -599,8 +624,32 @@ class PointageViewSet(JournalisedModelViewSet):
     journal_objet_type = "Pointage"
     permission_required = "gestion.pointages"
     search_fields = ["affectation_id__code_affectation", "mmaa"]
-    filter_backends = [OrderingFilter, PointageFilter]
-    ordering_fields = ["mmaa", "date_modification", "est_bloque"]
+    filter_backends = [PointageOrderingFilter, PointageFilter]
+    ordering_fields = [
+        "mmaa",
+        "taux_location",
+        "heures_service",
+        "heures_chomage",
+        "heures_panne",
+        "potentiel",
+        "montant_service",
+        "montant_chomage",
+        "montant_panne",
+        "date_modification",
+        "est_bloque",
+        "created_at",
+        "updated_at",
+        "user",
+        "code_affectation",
+        "code_materiel",
+        "code_site",
+        "code_filiale",
+        "user_id__username",
+        "affectation_id__code_affectation",
+        "affectation_id__code_materiel__code_materiel",
+        "affectation_id__code_filiale_mere__code_filiale",
+        "affectation_id__code_site__code_site",
+    ]
     ordering = ["-mmaa", "-date_modification"]
 
 class RegularisationGMViewSet(JournalisedModelViewSet):
@@ -1232,6 +1281,214 @@ class ImportGrandMaterielView(PagePermissionRequiredMixin, APIView):
             status=status.HTTP_201_CREATED,
         )
     
+
+class ValidateMaterielFilialeView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.materiel_filiale"
+
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+
+        # -----------------------------------------------------
+        # 1. Uploaded file
+        # -----------------------------------------------------
+
+        file = request.FILES.get("file")
+
+        if file is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun fichier reçu.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 2. Column mapping
+        # -----------------------------------------------------
+
+        raw_mapping = request.POST.get("mapping")
+
+        if not raw_mapping:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            mapping = json.loads(raw_mapping)
+
+        except (json.JSONDecodeError, TypeError):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(mapping, dict):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Le mapping des colonnes est invalide.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 3. Validate CSV
+        # -----------------------------------------------------
+
+        try:
+
+            validator = MaterielFilialeValidator(
+                uploaded_file=file,
+                mapping=mapping,
+            )
+
+            report = validator.validate()
+
+        except Exception as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 4. Build response
+        # -----------------------------------------------------
+
+        response_data = report.to_dict()
+
+        # -----------------------------------------------------
+        # 5. Cache successful validation
+        # -----------------------------------------------------
+
+        if report.success:
+
+            validation_id = ValidationCache.save(
+                report=report,
+                filiale=None,
+                filename=file.name,
+            )
+
+            response_data["validation_id"] = validation_id
+
+        # -----------------------------------------------------
+        # 6. Return validation result
+        # -----------------------------------------------------
+
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class ImportMaterielFilialeView(PagePermissionRequiredMixin, APIView):
+    permission_required = "import.materiel_filiale"
+
+    parser_classes = [JSONParser]
+
+    def post(self, request):
+
+        # -----------------------------------------------------
+        # 1. Validation ID
+        # -----------------------------------------------------
+
+        validation_id = request.data.get("validation_id")
+
+        if not validation_id:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "L'identifiant de validation est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+        # 2. Update the filiale of validated materials
+        # -----------------------------------------------------
+
+        try:
+
+            importer = MaterielFilialeCsvImporter(
+                validation_id=validation_id,
+            )
+
+            result = importer.import_data()
+
+            try:
+                log_csv_import(
+                    request,
+                    result,
+                    JournalModules.MATERIEL,
+                )
+            except Exception:
+                pass
+
+        except MaterielFilialeValidationExpiredError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_410_GONE,
+            )
+
+        except MaterielFilialeImportError as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        except Exception:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Une erreur inattendue est survenue "
+                        "pendant l'import."
+                    ),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # -----------------------------------------------------
+        # 3. Successful import
+        # -----------------------------------------------------
+
+        return Response(
+            {
+                **result,
+                "message": (
+                    "Mise à jour des filiales terminée avec succès."
+                ),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
 
 class ValidateMarqueView(PagePermissionRequiredMixin, APIView):
     permission_required = "import.marque"
@@ -2831,6 +3088,162 @@ class DashboardAPIView(PagePermissionRequiredMixin, APIView):
         )
 
         return Response(data)
+
+
+class DashboardV2BaseAPIView(PagePermissionRequiredMixin, APIView):
+    """
+    Base for the dashboard v2 endpoints.
+
+    Shares the `analyse.dashboard` permission with the legacy `DashboardAPIView`
+    via `PagePermissionRequiredMixin` (which resolves to
+    `[HasPagePermission("analyse.dashboard"), permissions.IsAuthenticated()]`).
+    All filters are optional and default to the current month-to-date range and
+    the `engin` niveau inside `DashboardV2Service`.
+    """
+
+    permission_required = ("analyse.dashboard",)
+
+    def get_filters(self):
+        return {
+            "code_filiale": self.request.query_params.get("code_filiale"),
+            "date_debut": self.request.query_params.get("date_debut"),
+            "date_fin": self.request.query_params.get("date_fin"),
+            "code_famille": self.request.query_params.get("code_famille"),
+        }
+
+    def get_niveau(self):
+        return self.request.query_params.get("niveau", "engin")
+
+
+class DashboardV2OverviewAPIView(DashboardV2BaseAPIView):
+    """
+    GET /api/dashboard-v2/overview/
+
+    Returns `{ globalKpis, maintenanceKpis, financialKpis }`. The `niveau`
+    query param is ignored on purpose (the overview is fleet-scoped).
+    """
+
+    def get(self, request):
+        data = DashboardV2Service.get_overview(**self.get_filters())
+        return Response(data)
+
+
+class DashboardV2SituationAPIView(DashboardV2BaseAPIView):
+    """
+    GET /api/dashboard-v2/situation/
+
+    Returns `{ situationDistribution, pointageEvolution, familleDistribution }`.
+    The `niveau` query param is ignored on purpose.
+    """
+
+    def get(self, request):
+        data = DashboardV2Service.get_situation(**self.get_filters())
+        return Response(data)
+
+
+class DashboardV2DisponibiliteAPIView(DashboardV2BaseAPIView):
+    """
+    GET /api/dashboard-v2/disponibilite/
+
+    Query params: code_filiale, date_debut, date_fin, code_famille, niveau.
+    Returns `{ evolution, breakdown }`.
+    """
+
+    def get(self, request):
+        data = DashboardV2Service.get_disponibilite(
+            niveau=self.get_niveau(), **self.get_filters()
+        )
+        return Response(data)
+
+
+class DashboardV2MaintenanceAPIView(DashboardV2BaseAPIView):
+    """
+    GET /api/dashboard-v2/maintenance/
+
+    Query params: code_filiale, date_debut, date_fin, code_famille, niveau.
+    Returns `{ mtbf, mttr, coutPanne }`, each `{ evolution, breakdown }`.
+    """
+
+    def get(self, request):
+        data = DashboardV2Service.get_maintenance(
+            niveau=self.get_niveau(), **self.get_filters()
+        )
+        return Response(data)
+
+
+class DashboardV2RendementAPIView(DashboardV2BaseAPIView):
+    """
+    GET /api/dashboard-v2/rendement/
+
+    Query params: code_filiale, date_debut, date_fin, code_famille, niveau.
+    Returns `{ pointageEvolution, rendementEvolution, breakdown }`.
+    """
+
+    def get(self, request):
+        data = DashboardV2Service.get_rendement(
+            niveau=self.get_niveau(), **self.get_filters()
+        )
+        return Response(data)
+
+
+class DashboardV2FinancesAPIView(DashboardV2BaseAPIView):
+    """
+    GET /api/dashboard-v2/finances/
+
+    Query params: code_filiale, date_debut, date_fin, code_famille, niveau.
+    Returns `{ caLocationInterne, rentabilite, tauxAffectation, tauxAffectationGlobal,
+    tauxUtilisation, tauxChomage }`.
+    """
+
+    def get(self, request):
+        data = DashboardV2Service.get_finances(
+            niveau=self.get_niveau(), **self.get_filters()
+        )
+        return Response(data)
+
+
+class DashboardV2FilialesAPIView(DashboardV2BaseAPIView):
+    """
+    GET /api/dashboard-v2/filiales/
+
+    Returns `[{ value, label }]` of the active subsidiaries.
+    """
+
+    def get(self, request):
+        return Response(DashboardV2Service.get_filiales())
+
+
+class DashboardV2FamillesAPIView(DashboardV2BaseAPIView):
+    """
+    GET /api/dashboard-v2/familles/
+
+    Returns `[{ value, label }]` of the active material families.
+    """
+
+    def get(self, request):
+        return Response(DashboardV2Service.get_familles())
+
+
+class DashboardV2FilialeStatsAPIView(DashboardV2BaseAPIView):
+    """
+    GET /api/dashboard-v2/filiale-stats/
+
+    Returns per-filiale aggregation of parc, affectations, heures service
+    and pointages, honoring the optional code_filiale / date / famille filters.
+    Grouped on the material's group (`code_materiel__code_filiale_g`); a
+    `code_filiale` filter collapses the list to a single row.
+    """
+
+    def get(self, request):
+        f = self.get_filters()
+        return Response(
+            DashboardV2Service.get_filiale_stats(
+                code_filiale=f["code_filiale"],
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+            )
+        )
 
 
 class CurrentUserView(PagePermissionRequiredMixin, APIView):

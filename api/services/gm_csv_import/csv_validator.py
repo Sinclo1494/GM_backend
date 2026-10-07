@@ -199,6 +199,26 @@ class GMCsvValidator:
                 )
                 continue
 
+            # Ignore materials already encountered earlier
+            # in the current CSV file.
+            if code_materiel in self.seen_materials:
+
+                report.increment_skipped()
+                report.add_warning(
+                    line=line_number,
+                    field="code_materiel",
+                    value=code_materiel,
+                    message=(
+                        "Doublon dans le fichier CSV. "
+                        f"Première occurrence ligne "
+                        f"{self.seen_materials[code_materiel]}. "
+                        "Ligne ignorée."
+                    ),
+                )
+                continue
+
+            self.seen_materials[code_materiel] = line_number
+
             # -------------------------------------------------
             # Business validation
             # -------------------------------------------------
@@ -237,10 +257,12 @@ class GMCsvValidator:
 
         This includes:
 
-        - Duplicate material detection
         - Foreign key existence
-        - CSV duplicate detection
         - Preparing foreign keys for Django model validation
+
+        Duplicate materials already present in the database or
+        already encountered in the CSV are skipped before this
+        method is called, in validate().
         """
 
         # -----------------------------------------------------
@@ -253,35 +275,8 @@ class GMCsvValidator:
             line_number=line_number,
         )
 
-        
-
         # -----------------------------------------------------
-        # 2. Duplicate inside current CSV
-        # -----------------------------------------------------
-        code_materiel = row.get("code_materiel")
-        if code_materiel is not None:
-
-            if code_materiel in self.seen_materials:
-
-                report.add_error(
-                    line=line_number,
-                    field="code_materiel",
-                    value=code_materiel,
-                    message=(
-                        "Doublon dans le fichier CSV. "
-                        f"Première occurrence ligne "
-                        f"{self.seen_materials[code_materiel]}."
-                    ),
-                )
-
-            else:
-
-                self.seen_materials[
-                    code_materiel
-                ] = line_number
-
-        # -----------------------------------------------------
-        # 3. Validate Sous_Famille_Materiel
+        # 2. Validate Sous_Famille_Materiel
         # -----------------------------------------------------
 
         code_sous_famille = row.get(
@@ -301,7 +296,7 @@ class GMCsvValidator:
             )
 
         # -----------------------------------------------------
-        # 4. Validate Type_Marque
+        # 3. Validate Type_Marque
         # -----------------------------------------------------
 
         code_type_marque = row.get(
@@ -321,7 +316,7 @@ class GMCsvValidator:
             )
 
         # -----------------------------------------------------
-        # 5. Validate Filiale
+        # 4. Validate Filiale
         # -----------------------------------------------------
 
         code_filiale = row.get(
@@ -341,7 +336,7 @@ class GMCsvValidator:
             )
 
         # -----------------------------------------------------
-        # 6. Prepare foreign keys
+        # 5. Prepare foreign keys
         #
         # Django accepts assigning the foreign key value
         # directly through the "_id" attribute because each
@@ -371,7 +366,7 @@ class GMCsvValidator:
             )
 
         # -----------------------------------------------------
-        # 8. Django model validation
+        # 6. Django model validation
         # -----------------------------------------------------
 
         self.validate_model(
