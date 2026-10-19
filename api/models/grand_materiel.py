@@ -1,4 +1,4 @@
-from django.db import models
+﻿from django.db import models
 
 from django.contrib.auth import get_user_model
 
@@ -60,3 +60,17 @@ class Grand_Materiel(models.Model):
             models.Index(fields=["date_acquisition"]),
             models.Index(fields=["designation"]),
         ]
+# Confirmation workflow
+    STATUS_CHOICES = (
+        ('PENDING', 'En attente'),
+        ('CONFIRMED', 'Confirmé'),
+        ('REJECTED', 'Rejeté'),
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='CONFIRMED')
+    imported_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='%(class)s_imported')
+    confirmed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='%(class)s_confirmed')
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    rejected_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='%(class)s_rejected')
+    rejected_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(null=True, blank=True)
+    import_batch_id = models.CharField(max_length=100, null=True, blank=True, db_index=True)

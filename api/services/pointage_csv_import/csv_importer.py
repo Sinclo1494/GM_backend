@@ -1,4 +1,4 @@
-from django.db import IntegrityError, transaction
+﻿from django.db import IntegrityError, transaction
 
 from api.models import Pointage
 
@@ -31,13 +31,12 @@ class PointageCsvImporter:
     def __init__(
         self,
         validation_id: str,
+        user=None,
+        import_batch_id: str | None = None,
     ):
         self.validation_id = validation_id
-
-    # ---------------------------------------------------------
-    # Import already validated rows
-    # ---------------------------------------------------------
-
+        self.user = user
+        self.import_batch_id = import_batch_id
     def import_data(self):
 
         # -----------------------------------------------------
@@ -63,11 +62,16 @@ class PointageCsvImporter:
         # 2. Build Pointage objects
         #
         # No validation here.
-        # Rows are already ready for Pointage(**row).
+
         # -----------------------------------------------------
 
         objects = [
-            Pointage(**row)
+            Pointage(
+                **row,
+                status='PENDING',
+                imported_by=self.user,
+                import_batch_id=self.import_batch_id or payload.get('import_batch_id'),
+            )
             for row in rows
         ]
 
@@ -133,4 +137,5 @@ class PointageCsvImporter:
             "filiale": filiale,
             "filename": filename,
             "validation_summary": summary,
+            "import_batch_id": self.import_batch_id or payload.get('import_batch_id'),
         }

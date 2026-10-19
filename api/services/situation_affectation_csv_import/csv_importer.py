@@ -1,4 +1,4 @@
-import re
+﻿import re
 
 from django.conf import settings
 from django.db import (
@@ -19,6 +19,8 @@ from api.models import (
 from ..validation_cache import ValidationCache
 
 BATCH_SIZE = 5000
+
+AFFECTATION_CODE_PATTERN = re.compile(r"\.(\d+)$")
 
 
 # ---------------------------------------------------------
@@ -48,6 +50,8 @@ class SituationAffectationCsvImporter:
     def __init__(
         self,
         validation_id: str,
+        user=None,
+        import_batch_id: str | None = None,
     ):
         self.validation_id = validation_id
         self.filiale = None
@@ -95,6 +99,8 @@ class SituationAffectationCsvImporter:
         self.last_affectation_numbers = {}
 
         self.last_situation_number = 0
+        self.user = user
+        self.import_batch_id = import_batch_id
 
     # ---------------------------------------------------------
     # Cache loading
@@ -156,18 +162,12 @@ class SituationAffectationCsvImporter:
 
             self.affectations[key] = affectation
 
-            match = re.search(
-                r"\.(\d+)$",
-                affectation.code_affectation or "",
-            )
+            match = AFFECTATION_CODE_PATTERN.search(affectation.code_affectation)
+            if match:
+                number = int(match.group(1))
 
-            if not match:
-                continue
-
-            number = int(match.group(1))
-
-            if number > self.last_affectation_numbers.get(material, 0):
-                self.last_affectation_numbers[material] = number
+                if number > self.last_affectation_numbers.get(material, 0):
+                    self.last_affectation_numbers[material] = number
 
         # -------------------------------------------------
         # Existing situations
@@ -204,23 +204,19 @@ class SituationAffectationCsvImporter:
         # Last situation sequence
         # -------------------------------------------------
 
-        latest = Situation_Materiel.objects.aggregate(value=Max("id_situation"))[
-            "value"
-        ]
+        # Max on CharField returns lexicographically max string (e.g. '99' > '160')
+        # So we must compute the actual numeric maximum
+        max_numeric = 0
+        for s in Situation_Materiel.objects.only("id_situation").iterator():
+            try:
+                val = int(s.id_situation)
+                if val > max_numeric:
+                    max_numeric = val
+            except (ValueError, TypeError):
+                continue
 
-        self.last_situation_number = 0
+        self.last_situation_number = max_numeric
 
-        if latest:
-
-            match = re.search(
-                r"(\d+)$",
-                str(latest),
-            )
-
-            if match:
-                self.last_situation_number = int(match.group(1))
-
-    # ---------------------------------------------------------
     # Helpers
     # ---------------------------------------------------------
 
@@ -244,8 +240,7 @@ class SituationAffectationCsvImporter:
     def next_id_situation(self):
 
         self.last_situation_number += 1
-
-        return f"{self.last_situation_number:06d}"
+        return self.last_situation_number
 
     @staticmethod
     def normalize_row_datetime(value):
@@ -281,12 +276,11 @@ class SituationAffectationCsvImporter:
             code_site_id=row["code_site"],
             code_filiale_mere_id=self.filiale,
             date_affectation=row["date_affectation"],
-            est_bloque=row.get(
-                "est_bloque",
-                False,
-            ),
+            est_bloque=row.get('est_bloque', False),
+            status='PENDING',
+            imported_by=self.user,
+            import_batch_id=self.import_batch_id,
         )
-
         affectation.full_clean(
             validate_unique=False,
         )
@@ -324,6 +318,10 @@ class SituationAffectationCsvImporter:
                 "La filiale est absente des données de validation."
             )
 
+        # Ensure import_batch_id is set from payload if not provided
+        if not self.import_batch_id:
+            self.import_batch_id = payload.get("import_batch_id")
+
         if not rows:
 
             ValidationCache.delete(
@@ -336,6 +334,7 @@ class SituationAffectationCsvImporter:
                 "imported_situations": 0,
                 "filename": filename,
                 "validation_summary": summary,
+                "import_batch_id": self.import_batch_id,
             }
 
         self.load_cache()
@@ -394,9 +393,6 @@ class SituationAffectationCsvImporter:
                     if situation_key in self.situations:
                         continue
 
-                    if situation_key in self.situations:
-                        continue
-
                     # -----------------------------------------
                     # Resolve foreign keys
                     # -----------------------------------------
@@ -420,17 +416,11 @@ class SituationAffectationCsvImporter:
                         type_situation_id=type_situation,
                         code_type_etat_materiel=etat,
                         date_situation=row["date_situation"],
-                        est_bloque=row.get(
-                            "est_bloque",
-                            False,
-                        ),
-                        date_modification=row.get(
-                            "date_modification",
-                        ),
-                    )
-
-                    situation.full_clean(
-                        validate_unique=False,
+                        est_bloque=row.get('est_bloque', False),
+                        status='PENDING',
+                        imported_by=self.user,
+                        import_batch_id=self.import_batch_id,
+                        date_modification=row.get('date_modification'),
                     )
 
                     batch.append(
@@ -496,4 +486,5 @@ class SituationAffectationCsvImporter:
             "imported_situations": imported_situations,
             "filename": filename,
             "validation_summary": summary,
+            "import_batch_id": self.import_batch_id,
         }

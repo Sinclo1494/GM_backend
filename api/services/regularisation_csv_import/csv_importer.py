@@ -1,4 +1,4 @@
-from django.db import IntegrityError, transaction
+﻿from django.db import IntegrityError, transaction
 
 from api.models import Regularisation_GM
 
@@ -25,8 +25,12 @@ class RegularisationGMCsvImporter:
     def __init__(
         self,
         validation_id: str,
+        user=None,
+        import_batch_id: str | None = None,
     ):
         self.validation_id = validation_id
+        self.user = user
+        self.import_batch_id = import_batch_id
 
     def import_data(self):
 
@@ -46,7 +50,12 @@ class RegularisationGMCsvImporter:
         filename = payload.get("filename", "")
 
         objects = [
-            Regularisation_GM(**row)
+            Regularisation_GM(
+                **row,
+                status='PENDING',
+                imported_by=self.user,
+                import_batch_id=self.import_batch_id or payload.get('import_batch_id'),
+            )
             for row in rows
         ]
 
@@ -61,6 +70,7 @@ class RegularisationGMCsvImporter:
                 "filiale": filiale,
                 "filename": filename,
                 "validation_summary": summary,
+                "import_batch_id": self.import_batch_id or payload.get('import_batch_id'),
             }
 
         try:
@@ -88,4 +98,5 @@ class RegularisationGMCsvImporter:
             "filiale": filiale,
             "filename": filename,
             "validation_summary": summary,
+            "import_batch_id": self.import_batch_id or payload.get('import_batch_id'),
         }

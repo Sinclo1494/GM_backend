@@ -1,3 +1,5 @@
+﻿from .notification import Notification
+from .pointage import Pointage
 from .grand_materiel import Grand_Materiel
 from .marque_materiel import Marque_Materiel
 from .type_marque import Type_Marque
@@ -13,11 +15,9 @@ from .filiale import Filiale
 from .affectation_materiel import Affectation_Materiel
 from .division import Division
 from .famille_structures import Famille_Structures
-from .pointage import Pointage
 from .regularisation_gm import Regularisation_GM
 from .regularisation_mois_gm2 import Regularisation_Mois_GM2
 from .site import Site
 from .journal import Journal
-from .journal import JournalActions
-from .journal import JournalModules
 from .user_profile import UserProfile
+

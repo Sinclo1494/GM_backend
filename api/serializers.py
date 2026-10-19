@@ -1,3 +1,4 @@
+﻿from .models import Notification
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import Journal
@@ -270,3 +271,7 @@ class CurrentUserSerializer(serializers.Serializer):
     is_superuser = serializers.BooleanField()
     permissions = serializers.ListField(child=serializers.CharField())
 
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = "__all__"

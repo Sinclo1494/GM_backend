@@ -1,4 +1,4 @@
-from datetime import timedelta,date
+﻿from datetime import timedelta, date
 from collections import defaultdict
 
 from django.db.models import (
@@ -13,9 +13,10 @@ from django.db.models import (
     Avg,
     Sum,
     Q,
-    IntegerField
+    IntegerField,
+    CharField,
 )
-from django.db.models.functions import Lead, Cast, Greatest, ExtractYear, Now, RowNumber
+from django.db.models.functions import Lead, Cast, Greatest, ExtractYear, Now, RowNumber, Concat
 from api.models import Grand_Materiel, Situation_Materiel, Affectation_Materiel
 from api.serializers import SituationMaterielSerializer
 
@@ -31,6 +32,7 @@ class AnalyseQuantitative:
         code_filiale,
         date_debut,
         date_fin,
+        include_pending=False,
     ):
         """Situation of every material *in force* during ``[date_debut, date_fin]``.
 
@@ -278,6 +280,57 @@ class AnalyseQuantitative:
                     row["immobilise"]["autre"] += 1
             else:
                 row["immobilise"]["autre"] += 1
+
+        if include_pending:
+            pending_qs = Grand_Materiel.objects.filter(
+                status='PENDING',
+                code_filiale_g=code_filiale,
+                code_sous_famille_materiel__isnull=False,
+            ).select_related(
+                'code_sous_famille_materiel',
+                'code_sous_famille_materiel__code_famille_materiel',
+                'code_sous_famille_materiel__code_famille_materiel__code_categorie_gm',
+            )
+
+            for gm in pending_qs:
+                sf = gm.code_sous_famille_materiel
+                if not sf:
+                    continue
+                key = (sf.code_sous_famille, sf.libelle_sous_famille)
+
+                if key not in result:
+                    result[key] = {
+                        "code_sous_famille": sf.code_sous_famille,
+                        "libelle_sous_famille": sf.libelle_sous_famille,
+                        "code_categorie": sf.code_famille_materiel.code_categorie_gm.code_categorie if sf.code_famille_materiel and sf.code_famille_materiel.code_categorie_gm else None,
+                        "libelle_categorie": sf.code_famille_materiel.code_categorie_gm.libelle_categorie if sf.code_famille_materiel and sf.code_famille_materiel.code_categorie_gm else None,
+
+                        "nbr": 0,
+                        "age_total": 0,
+
+                        "exploitation": {
+                            "en_service": 0,
+                            "en_chomage": 0,
+                            "en_panne": 0,
+                        },
+
+                        "immobilise": {
+                            "en_chomage": 0,
+                            "en_reparation": 0,
+                            "autre": 0,
+                        },
+                        "reparation": {
+                            "autre": 0,
+                            "ALREM": 0,
+                        },
+                    }
+
+                row = result[key]
+                row["nbr"] += 1
+                # age is 0 for pending
+                # Default to "immobilise.autre" for pending (no situation/affectation yet)
+                row["immobilise"]["autre"] += 1
+
         final_result = []
 
         for row in result.values():
@@ -299,11 +352,13 @@ class AnalyseQuantitativeResume:
         code_filiale,
         date_debut,
         date_fin,
+        include_pending=False,
     ):
         rows = AnalyseQuantitative.get_situations(
             code_filiale,
             date_debut,
             date_fin,
+            include_pending=include_pending,
         )
 
         nbr_total = 0

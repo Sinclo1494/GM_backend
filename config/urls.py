@@ -1,4 +1,4 @@
-"""
+﻿"""
 URL configuration for config project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
@@ -59,6 +59,9 @@ from api.views import (
     DashboardV2FilialesAPIView,
     DashboardV2FamillesAPIView,
     DashboardV2FilialeStatsAPIView,
+    ConfirmPendingView,
+    BulkConfirmPendingView,
+    RejectPendingView,
 )
 
 from rest_framework_simplejwt.views import (
@@ -89,6 +92,7 @@ router.register(r'regularisation-mois-gm2', views.RegularisationMoisGM2ViewSet, 
 router.register(r'site', views.SiteViewSet, 'site')
 router.register(r'journal', views.JournalViewSet, 'journal')
 router.register(r'users', views.UserViewSet, 'users')
+router.register(r'notifications', views.NotificationViewSet, 'notifications')
 
 
 def health_check(request):
@@ -128,6 +132,10 @@ urlpatterns = [
     path('api/site-import/', ImportSiteView.as_view(), name='import_site'),
     path('api/regularisation-gm-validate/', ValidateRegularisationGMView.as_view(), name='validate_regularisation_gm'),
     path('api/regularisation-gm-import/', ImportRegularisationGMView.as_view(), name='import_regularisation_gm'),
+    path('api/import/pending/list/', views.PendingListView.as_view(), name='pending_list'),
+    path('api/import/pending/confirm/', views.ConfirmPendingView.as_view(), name='pending_confirm'),
+    path('api/import/pending/bulk-confirm/', views.BulkConfirmPendingView.as_view(), name='pending_bulk_confirm'),
+    path('api/import/pending/reject/', views.RejectPendingView.as_view(), name='pending_reject'),
     path('api/pointage-upload/', pointage_upload_view),
     path('api/situation-upload/', situation_upload_view),
     path('api/aqtp/', TP_AQ_API_View.as_view()),

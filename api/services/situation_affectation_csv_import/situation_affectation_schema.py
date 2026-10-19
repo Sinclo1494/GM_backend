@@ -82,6 +82,7 @@ SITUATION_AFFECTATION_SCHEMA = CsvSchema([
             "%d/%m/%Y %H:%M:%S",
             "%d/%m/%Y %H:%M",
             "%d/%m/%Y",
+            "%Y%m%d",
         ),
     ),
 
@@ -115,6 +116,7 @@ SITUATION_AFFECTATION_SCHEMA = CsvSchema([
             "%d/%m/%Y %H:%M",
             "%d/%m/%Y",
             "%d-%m-%Y",
+            "%Y%m%d",
         ),
     ),
 
@@ -145,6 +147,7 @@ SITUATION_AFFECTATION_SCHEMA = CsvSchema([
             "%d/%m/%Y %H:%M",
             "%d/%m/%Y",
             "%d-%m-%Y",
+            "%Y%m%d",
         ),
     ),
 

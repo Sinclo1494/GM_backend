@@ -3,6 +3,7 @@ import re
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import filters
+from api.models import Grand_Materiel
 
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -242,6 +243,12 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
         if est_bloque is not None and est_bloque != "":
             queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
 
+        # Include pending Grand_Materiel records (status=PENDING) when requested by superuser
+        include_pending = (
+            request.query_params.get('include_pending', 'false').lower() == 'true'
+            and getattr(request.user, 'is_superuser', False)
+        )
+
         # Filter by type_affectation when filtered=true
         # Excludes materiel with latest situation type_affectation in 06, 07, 08 or libelle "NON FOURNIE"
         if filtered and filtered.lower() == "true":
@@ -266,6 +273,35 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
             ).exclude(
                 Q(latest_type_affectation_code__in=["06","07", "08"]) | Q(latest_type_affectation_libelle="NON FOURNIE")
             )
+
+        if include_pending:
+            # Include pending records that don't have situations yet
+            pending_qs = Grand_Materiel.objects.filter(status='PENDING')
+            # Apply the same filters (filiale, famille, etc.) to pending records
+            if code_filiale:
+                pending_qs = pending_qs.filter(code_filiale_g__code_filiale__icontains=code_filiale)
+            if libelle_filiale:
+                pending_qs = pending_qs.filter(code_filiale_g__libelle_filiale__icontains=libelle_filiale)
+            if code_sous_famille:
+                pending_qs = pending_qs.filter(code_sous_famille_materiel__code_sous_famille__icontains=code_sous_famille)
+            if libelle_sous_famille:
+                pending_qs = pending_qs.filter(code_sous_famille_materiel__libelle_sous_famille__icontains=libelle_sous_famille)
+            if libelle_famille:
+                pending_qs = pending_qs.filter(
+                    code_sous_famille_materiel__code_famille_materiel__libelle_famille__icontains=libelle_famille
+                )
+            if libelle_categorie:
+                pending_qs = pending_qs.filter(
+                    code_sous_famille_materiel__code_famille_materiel__code_categorie_gm__libelle_categorie__icontains=libelle_categorie
+                )
+            if libelle_marque:
+                pending_qs = pending_qs.filter(
+                    code_type_marque__code_marque__libelle_marque__icontains=libelle_marque
+                )
+            # Combine with main queryset
+            from django.db.models import Q as Q2
+            queryset = queryset | pending_qs
+            queryset = queryset.distinct()
 
         return queryset
 
@@ -347,3 +383,245 @@ class PointageFilter(filters.BaseFilterBackend):
         if est_bloque is not None and est_bloque != "":
             queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
         return queryset
+
+class MarqueMaterielFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_marque = request.query_params.get('code_marque')
+        libelle_marque = request.query_params.get('libelle_marque')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_marque:
+            queryset = queryset.filter(code_marque__icontains=code_marque)
+        if libelle_marque:
+            queryset = queryset.filter(libelle_marque__icontains=libelle_marque)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class TypeMarqueFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_type_marque = request.query_params.get('code_type_marque')
+        libelle_type_marque = request.query_params.get('libelle_type_marque')
+        code_marque = request.query_params.get('code_marque')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_type_marque:
+            queryset = queryset.filter(code_type_marque__icontains=code_type_marque)
+        if libelle_type_marque:
+            queryset = queryset.filter(libelle_type_marque__icontains=libelle_type_marque)
+        if code_marque:
+            queryset = queryset.filter(code_marque__code_marque__icontains=code_marque)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class CategorieGMFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_categorie = request.query_params.get('code_categorie')
+        libelle_categorie = request.query_params.get('libelle_categorie')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_categorie:
+            queryset = queryset.filter(code_categorie__icontains=code_categorie)
+        if libelle_categorie:
+            queryset = queryset.filter(libelle_categorie__icontains=libelle_categorie)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class FamilleMaterielFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_famille = request.query_params.get('code_famille')
+        libelle_famille = request.query_params.get('libelle_famille')
+        code_categorie_gm = request.query_params.get('code_categorie_gm')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_famille:
+            queryset = queryset.filter(code_famille__icontains=code_famille)
+        if libelle_famille:
+            queryset = queryset.filter(libelle_famille__icontains=libelle_famille)
+        if code_categorie_gm:
+            queryset = queryset.filter(code_categorie_gm__code_categorie__icontains=code_categorie_gm)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class SousFamilleMaterielFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_sous_famille = request.query_params.get('code_sous_famille')
+        libelle_sous_famille = request.query_params.get('libelle_sous_famille')
+        code_famille_materiel = request.query_params.get('code_famille_materiel')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_sous_famille:
+            queryset = queryset.filter(code_sous_famille__icontains=code_sous_famille)
+        if libelle_sous_famille:
+            queryset = queryset.filter(libelle_sous_famille__icontains=libelle_sous_famille)
+        if code_famille_materiel:
+            queryset = queryset.filter(code_famille_materiel__code_famille__icontains=code_famille_materiel)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class TypeAffectationFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_type_affectation = request.query_params.get('code_type_affectation')
+        libelle_type_affectation = request.query_params.get('libelle_type_affectation')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_type_affectation:
+            queryset = queryset.filter(code_type_affectation__icontains=code_type_affectation)
+        if libelle_type_affectation:
+            queryset = queryset.filter(libelle_type_affectation__icontains=libelle_type_affectation)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class TypeSituationFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_type_situation = request.query_params.get('code_type_situation')
+        libelle_type_situation = request.query_params.get('libelle_type_situation')
+        code_type_affectation = request.query_params.get('code_type_affectation')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_type_situation:
+            queryset = queryset.filter(code_type_situation__icontains=code_type_situation)
+        if libelle_type_situation:
+            queryset = queryset.filter(libelle_type_situation__icontains=libelle_type_situation)
+        if code_type_affectation:
+            queryset = queryset.filter(code_type_affectation__code_type_affectation__icontains=code_type_affectation)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class TypeEtatMaterielFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_type_etat_materiel = request.query_params.get('code_type_etat_materiel')
+        libelle_type_etat_materiel = request.query_params.get('libelle_type_etat_materiel')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_type_etat_materiel:
+            queryset = queryset.filter(code_type_etat_materiel__icontains=code_type_etat_materiel)
+        if libelle_type_etat_materiel:
+            queryset = queryset.filter(libelle_type_etat_materiel__icontains=libelle_type_etat_materiel)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class SiteFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_site = request.query_params.get('code_site')
+        libelle_site = request.query_params.get('libelle_site')
+        code_filiale = request.query_params.get('code_filiale')
+        code_region = request.query_params.get('code_region')
+        type_site = request.query_params.get('type_site')
+        code_agence = request.query_params.get('code_agence')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_site:
+            queryset = queryset.filter(code_site__icontains=code_site)
+        if libelle_site:
+            queryset = queryset.filter(libelle_site__icontains=libelle_site)
+        if code_filiale:
+            queryset = queryset.filter(code_filiale__code_filiale__icontains=code_filiale)
+        if code_region:
+            queryset = queryset.filter(code_region__icontains=code_region)
+        if type_site:
+            queryset = queryset.filter(type_site__icontains=type_site)
+        if code_agence:
+            queryset = queryset.filter(code_agence__icontains=code_agence)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class RegularisationGMFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_site = request.query_params.get('code_site')
+        mmaa = request.query_params.get('mmaa')
+        montant_regularisation = request.query_params.get('montant_regularisation')
+        observation = request.query_params.get('observation')
+        date_modification = request.query_params.get('date_modification')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_site:
+            queryset = queryset.filter(code_site__code_site__icontains=code_site)
+        if mmaa:
+            if _ISO_DATE_RE.match(mmaa.strip()):
+                queryset = queryset.filter(mmaa=mmaa.strip())
+            else:
+                queryset = queryset.filter(_date_filter_q('mmaa', mmaa))
+        if montant_regularisation:
+            queryset = queryset.filter(montant_regularisation__icontains=montant_regularisation)
+        if observation:
+            queryset = queryset.filter(observation__icontains=observation)
+        if date_modification:
+            queryset = queryset.filter(_date_filter_q('date_modification', date_modification))
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class RegularisationMoisGM2Filter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_regularisation = request.query_params.get('code_regularisation')
+        montant_regularisation = request.query_params.get('montant_regularisation')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_regularisation:
+            queryset = queryset.filter(code_regularisation__icontains=code_regularisation)
+        if montant_regularisation:
+            queryset = queryset.filter(montant_regularisation__icontains=montant_regularisation)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+
+class EntrepriseFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_entreprise = request.query_params.get('code_entreprise')
+        libelle_entreprise = request.query_params.get('libelle_entreprise')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_entreprise:
+            queryset = queryset.filter(code_entreprise__icontains=code_entreprise)
+        if libelle_entreprise:
+            queryset = queryset.filter(libelle_entreprise__icontains=libelle_entreprise)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class FilialeFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_filiale = request.query_params.get('code_filiale')
+        libelle_filiale = request.query_params.get('libelle_filiale')
+        code_entreprise = request.query_params.get('code_entreprise')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_filiale:
+            queryset = queryset.filter(code_filiale__icontains=code_filiale)
+        if libelle_filiale:
+            queryset = queryset.filter(libelle_filiale__icontains=libelle_filiale)
+        if code_entreprise:
+            queryset = queryset.filter(code_entreprise__code_entreprise__icontains=code_entreprise)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class DivisionFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_division = request.query_params.get('code_division')
+        libelle_division = request.query_params.get('libelle_division')
+        code_filiale = request.query_params.get('code_filiale')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_division:
+            queryset = queryset.filter(code_division__icontains=code_division)
+        if libelle_division:
+            queryset = queryset.filter(libelle_division__icontains=libelle_division)
+        if code_filiale:
+            queryset = queryset.filter(code_filiale__code_filiale__icontains=code_filiale)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+
+class FamilleStructuresFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        code_famille_structure = request.query_params.get('code_famille_structure')
+        libelle_famille_structure = request.query_params.get('libelle_famille_structure')
+        code_division = request.query_params.get('code_division')
+        est_bloque = request.query_params.get('est_bloque')
+        if code_famille_structure:
+            queryset = queryset.filter(code_famille_structure__icontains=code_famille_structure)
+        if libelle_famille_structure:
+            queryset = queryset.filter(libelle_famille_structure__icontains=libelle_famille_structure)
+        if code_division:
+            queryset = queryset.filter(code_division__code_division__icontains=code_division)
+        if est_bloque is not None and est_bloque != '':
+            queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
+        return queryset
+

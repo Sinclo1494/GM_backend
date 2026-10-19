@@ -1,4 +1,4 @@
-from rest_framework import permissions
+﻿from rest_framework import permissions
 
 
 class HasPagePermission(permissions.BasePermission):
@@ -37,3 +37,23 @@ class PagePermissionRequiredMixin:
                 perms = (perms,)
             return [HasPagePermission(*perms), permissions.IsAuthenticated()]
         return [permissions.IsAuthenticated()]
+class CanModifyEntityWhilePending(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_superuser:
+            return True
+        is_write = request.method in ('PUT', 'PATCH', 'DELETE')
+        if not is_write:
+            return True
+        status = getattr(obj, 'status', 'CONFIRMED')
+        if status == 'PENDING':
+            imported_by = getattr(obj, 'imported_by', None)
+            if imported_by and imported_by.id == user.id:
+                return True
+            return True
+        else:
+            return user.is_superuser

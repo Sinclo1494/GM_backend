@@ -1,8 +1,9 @@
-from django.db import models
+﻿from django.db import models
 
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
+
 
 class Affectation_Materiel(models.Model):
     code_affectation = models.CharField(max_length=100)
@@ -32,24 +33,23 @@ class Affectation_Materiel(models.Model):
         blank=True,
     )
     date_affectation = models.DateTimeField()
-    date_fin_affectation = models.DateTimeField(null=True,blank=True)
+    date_fin_affectation = models.DateTimeField(null=True, blank=True)
     nbr_jours_affectation = models.IntegerField(default=0)
-    date_debut_affectation = models.DateTimeField(null=True,blank=True)
+    date_debut_affectation = models.DateTimeField(null=True, blank=True)
     prenable = models.BooleanField(default=False)
     est_bloque = models.BooleanField(default=False)
     user_id = models.ForeignKey(
         User,
-        on_delete=models.PROTECT,default=1
+        on_delete=models.PROTECT, default=1
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 name="unique_affectation_site",
-                fields=["code_affectation","code_site"],
+                fields=["code_affectation", "code_site"],
             )
         ]
         indexes = [
@@ -63,6 +63,20 @@ class Affectation_Materiel(models.Model):
             models.Index(fields=["code_affectation", "code_site"]),
         ]
 
-
     def __str__(self):
-        return  f"{self.code_affectation} - {self.code_site}"
+        return f"{self.code_affectation} - {self.code_site}"
+
+    # Confirmation workflow
+    STATUS_CHOICES = (
+        ('PENDING', 'En attente'),
+        ('CONFIRMED', 'Confirmé'),
+        ('REJECTED', 'Rejeté'),
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='CONFIRMED')
+    imported_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='%(class)s_imported')
+    confirmed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='%(class)s_confirmed')
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    rejected_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='%(class)s_rejected')
+    rejected_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(null=True, blank=True)
+    import_batch_id = models.CharField(max_length=100, null=True, blank=True, db_index=True)

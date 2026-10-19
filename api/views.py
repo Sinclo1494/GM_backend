@@ -1,92 +1,169 @@
 import json
 
+
 from django.shortcuts import render
+
+
 from django.http import JsonResponse
 
+
 from rest_framework import status, viewsets, permissions, mixins
+
+
 from rest_framework.decorators import action
+
+
 from rest_framework.parsers import MultiPartParser, JSONParser
+
+
 from rest_framework.response import Response
+
+
 from rest_framework.views import APIView
+
+
 from rest_framework.pagination import PageNumberPagination
+
+
 from rest_framework.filters import OrderingFilter
+
+
 from django.db import transaction
-from django.db.models import F, Value, CharField
+
+
+from django.db.models import F, Value, CharField, Count
+
+
 from django.db.models.functions import Concat
+
+
 from django.contrib.auth import get_user_model
+
+
 from django.contrib.auth.password_validation import validate_password
+
+
 from django.utils import timezone
 
 User = get_user_model()
+
 
 from .services.journal_service import (
     log_action,
     log_csv_import,
     serialize_for_journal,
 )
+
+
 from .models.journal import JournalActions, JournalModules
 
+
 from .services.pointage_csv_import.pointage_schema import POINTAGE_SCHEMA
+
+
 from .services.gm_csv_import.gm_schema import GRAND_MATERIEL_SCHEMA
+
+
 from .services.marque_csv_import.marque_schema import MARQUE_MATERIEL_SCHEMA
+
+
 from .services.type_marque_csv_import.type_marque_schema import TYPE_MARQUE_SCHEMA
+
+
 from .services.sous_famille_csv_import.sous_famille_schema import SOUS_FAMILLE_SCHEMA
+
+
 from .services.famille_csv_import.famille_schema import FAMILLE_SCHEMA
+
+
 from .services.categorie_gm_csv_import.categorie_gm_schema import CATEGORIE_GM_SCHEMA
-from .services.situation_affectation_csv_import.situation_affectation_schema import SITUATION_AFFECTATION_SCHEMA
+
+
+from .services.situation_affectation_csv_import.situation_affectation_schema import (
+    SITUATION_AFFECTATION_SCHEMA,
+)
+
+
 from .services.site_csv_import.site_schema import SITE_SCHEMA
-from .services.regularisation_csv_import.regularisation_schema import REGULARISATION_GM_SCHEMA
+
+
+from .services.regularisation_csv_import.regularisation_schema import (
+    REGULARISATION_GM_SCHEMA,
+)
+
+
 from .services.validation_cache import ValidationCache
+
+
 from .services.pointage_csv_import.csv_importer import (
     PointageCsvImporter,
     PointageValidationExpiredError,
     PointageImportError,
 )
+
+
 from .services.gm_csv_import.csv_importer import (
     GMCsvImporter,
     GMValidationExpiredError,
-    GrandMaterielImportError
+    GrandMaterielImportError,
 )
+
+
 from .services.marque_csv_import.csv_importer import (
     MarqueCsvImporter,
     MarqueValidationExpiredError,
-    MarqueImportError
+    MarqueImportError,
 )
+
+
 from .services.type_marque_csv_import.csv_importer import (
     TypeMarqueCsvImporter,
     TypeMarqueValidationExpiredError,
-    TypeMarqueImportError
+    TypeMarqueImportError,
 )
+
+
 from .services.sous_famille_csv_import.csv_importer import (
     SousFamilleCsvImporter,
     SousFamilleValidationExpiredError,
-    SousFamilleImportError
+    SousFamilleImportError,
 )
+
+
 from .services.famille_csv_import.csv_importer import (
     FamilleCsvImporter,
     FamilleValidationExpiredError,
-    FamilleImportError
+    FamilleImportError,
 )
+
+
 from .services.categorie_gm_csv_import.csv_importer import (
     CategorieGMCsvImporter,
     CategorieGMValidationExpiredError,
-    CategorieGMImportError
+    CategorieGMImportError,
 )
+
+
 from .services.situation_affectation_csv_import.csv_importer import (
     SituationAffectationCsvImporter,
     SituationAffectationValidationExpiredError,
-    SituationAffectationImportError
+    SituationAffectationImportError,
 )
+
+
 from .services.site_csv_import.csv_importer import (
     SiteCsvImporter,
     SiteValidationExpiredError,
-    SiteImportError
+    SiteImportError,
 )
+
+
 from .services.regularisation_csv_import.csv_importer import (
     RegularisationGMCsvImporter,
     RegularisationGMValidationExpiredError,
-    RegularisationGMImportError
+    RegularisationGMImportError,
 )
+
 
 from api.services import (
     PointageImportService,
@@ -106,56 +183,165 @@ from api.services import (
     SiteCsvValidator,
     RegularisationGMCsvValidator,
 )
+
+
 from api.services.dashboard_service import DashboardService
+
+
 from api.services.dashboard_v2_service import DashboardV2Service
 
+
 from .models import Journal
+
+
+from .models import Notification
+
+
 from .models import Grand_Materiel
+
+
 from .models import Marque_Materiel
+
+
 from .models import Type_Marque
+
+
 from .models import Sous_Famille_Materiel
+
+
 from .models import Famille_Materiel
+
+
 from .models import Categorie_GM
+
+
 from .models import Type_Affectation
+
+
 from .models import Type_Situation
+
+
 from .models import Type_Etat_Materiel
+
+
 from .models import Situation_Materiel
+
+
 from .models import Entreprise
+
+
 from .models import Filiale
+
+
 from .models import Affectation_Materiel
+
+
 from .models import Division
+
+
 from .models import Famille_Structures
+
+
 from .models import Pointage
+
+
 from .models import Regularisation_GM
+
+
 from .models import Regularisation_Mois_GM2
+
+
 from .models import Site
+
+
 from .models import UserProfile
 
+
 from .serializers import GrandMaterielSerializer
+
+
+from .serializers import NotificationSerializer
+
+
 from .serializers import MarqueMaterielSerializer
+
+
 from .serializers import TypeMarqueSerializer
+
+
 from .serializers import SousFamilleMaterielSerializer
+
+
 from .serializers import FamilleMaterielSerializer
+
+
 from .serializers import CategorieGMSerializer
+
+
 from .serializers import TypeAffectationSerializer
+
+
 from .serializers import TypeSituationSerializer
+
+
 from .serializers import TypeEtatMaterielSerializer
+
+
 from .serializers import SituationMaterielSerializer
+
+
 from .serializers import EntrepriseSerializer
+
+
 from .serializers import FilialeSerializer
+
+
 from .serializers import AffectationMaterielSerializer
+
+
 from .serializers import DivisionSerializer
+
+
 from .serializers import FamilleStructuresSerializer
+
+
 from .serializers import PointageSerializer
+
+
 from .serializers import RegularisationGMSerializer
+
+
 from .serializers import RegularisationMoisGM2Serializer
+
+
 from .serializers import SiteSerializer
+
+
 from .serializers import JournalSerializer
+
+
 from .serializers import UserSerializer
+
+
 from .serializers import UserProfileSerializer
+
+
 from .serializers import CurrentUserSerializer
+
+
 from .serializers import UserPreferencesSerializer
+
+
 from .permissions import PagePermissionRequiredMixin
+
+
+from .permissions import (
+    PagePermissionRequiredMixin,
+    HasPagePermission,
+    CanModifyEntityWhilePending,
+)
+
+
 from .filters import (
     AffectationMaterielFilter,
     SituationMaterielFilter,
@@ -163,83 +349,172 @@ from .filters import (
     PointageFilter,
     PointageOrderingFilter,
     GrandMaterielOrderingFilter,
+    MarqueMaterielFilter,
+    TypeMarqueFilter,
+    CategorieGMFilter,
+    FamilleMaterielFilter,
+    SousFamilleMaterielFilter,
+    TypeAffectationFilter,
+    TypeSituationFilter,
+    TypeEtatMaterielFilter,
+    SiteFilter,
+    RegularisationGMFilter,
+    RegularisationMoisGM2Filter,
+    EntrepriseFilter,
+    FilialeFilter,
+    DivisionFilter,
+    FamilleStructuresFilter,
 )
 
 
 # ---------------------------------------------------------
+
+
 # JournalisedModelViewSet mixin
+
+
 # ---------------------------------------------------------
 
+
 class StandardResultsSetPagination(PageNumberPagination):
+
     page_size = 50
+
     page_size_query_param = "page_size"
+
     max_page_size = 1000
 
+
 class SearchableModelViewSet(PagePermissionRequiredMixin, viewsets.ModelViewSet):
+
     search_fields = []
+
     pagination_class = StandardResultsSetPagination
+
     filter_backends = []
+
     ordering_fields = []
+
     ordering = []
 
     def get_queryset(self):
+
         qs = super().get_queryset()
+
         search = self.request.query_params.get("search")
+
         if search and self.search_fields:
+
             from django.db.models import Q
+
             q = Q()
+
             for field in self.search_fields:
+
                 q |= Q(**{f"{field}__icontains": search})
+
             qs = qs.filter(q)
+
         return qs
 
     def get_serializer(self, *args, **kwargs):
+
         serializer_class = self.get_serializer_class()
+
         kwargs.setdefault("context", self.get_serializer_context())
+
         return serializer_class(*args, **kwargs)
 
 
 class JournalisedModelViewSet(SearchableModelViewSet):
     """
+
+
+
     ModelViewSet that records journal (audit) entries for
+
+
+
     CREATE, UPDATE, and DELETE operations.
 
+
+
+
+
+
+
     Subclasses must set:
+
+
+
       - journal_module   (JournalModules value)
+
+
+
       - journal_objet_type (string, typically the model class name)
+
+
+
       - journal_filiale_field  (FK attr name for code_filiale, optional)
+
+
+
       - journal_site_field  (FK attr name for code_site, optional)
+
+
+
     """
 
     journal_module = None
+
     journal_objet_type = None
+
     journal_filiale_field = None
+
     journal_site_field = None
 
     def _get_filiale_code(self, instance):
+
         if self.journal_filiale_field:
+
             fk = getattr(instance, self.journal_filiale_field, None)
+
             if fk is not None:
+
                 return getattr(fk, "code_filiale", None)
+
         return None
 
     def _get_site_code(self, instance):
+
         if self.journal_site_field:
+
             fk = getattr(instance, self.journal_site_field, None)
+
             if fk is not None:
+
                 return getattr(fk, "code_site", None)
+
         return None
 
     def _serialize_instance(self, instance):
+
         serializer = self.get_serializer(instance)
+
         data = dict(serializer.data)
+
         for key, value in list(data.items()):
+
             if value is not None and hasattr(value, "isoformat"):
+
                 data[key] = value.isoformat()
+
         return data
 
     def perform_create(self, serializer):
+
         instance = serializer.save()
+
         log_action(
             user=self.request.user,
             action=JournalActions.CREATE,
@@ -250,11 +525,13 @@ class JournalisedModelViewSet(SearchableModelViewSet):
             request=self.request,
             code_filiale=self._get_filiale_code(instance),
             code_site=self._get_site_code(instance),
-            description=f"Création de {self.journal_objet_type}",
+            description=f"CrÃÂ©ation de {self.journal_objet_type}",
         )
 
     def perform_update(self, serializer):
+
         instance = serializer.instance
+
         old_data = self._serialize_instance(instance)
 
         super().perform_update(serializer)
@@ -276,11 +553,17 @@ class JournalisedModelViewSet(SearchableModelViewSet):
         )
 
     def perform_destroy(self, instance):
+
         old_data = self._serialize_instance(instance)
+
         filiale = self._get_filiale_code(instance)
+
         site = self._get_site_code(instance)
+
         pk = instance.pk
+
         objet_type = self.journal_objet_type
+
         module = self.journal_module
 
         super().perform_destroy(instance)
@@ -300,8 +583,13 @@ class JournalisedModelViewSet(SearchableModelViewSet):
 
 
 # ---------------------------------------------------------
+
+
 # Journal ViewSet (read-only, immutable)
+
+
 # ---------------------------------------------------------
+
 
 class JournalViewSet(
     PagePermissionRequiredMixin,
@@ -309,49 +597,73 @@ class JournalViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
+
     queryset = Journal.objects.all()
+
     serializer_class = JournalSerializer
+
     permission_required = "administration.journalisation"
+
     search_fields = ["description", "objet_type", "objet_id"]
 
     def get_queryset(self):
+
         qs = super().get_queryset()
 
         date_debut = self.request.query_params.get("date_debut")
+
         if date_debut:
+
             qs = qs.filter(date_action__gte=date_debut)
 
         date_fin = self.request.query_params.get("date_fin")
+
         if date_fin:
+
             qs = qs.filter(date_action__date__lte=date_fin)
 
         username = self.request.query_params.get("user")
+
         if username:
+
             qs = qs.filter(user__username__icontains=username)
 
         module = self.request.query_params.get("module")
+
         if module:
+
             qs = qs.filter(module=module)
 
         action = self.request.query_params.get("action")
+
         if action:
+
             qs = qs.filter(action=action)
 
         objet_id = self.request.query_params.get("objet_id")
+
         if objet_id:
+
             qs = qs.filter(objet_id=objet_id)
 
         code_filiale = self.request.query_params.get("code_filiale")
+
         if code_filiale:
+
             qs = qs.filter(code_filiale=code_filiale)
 
         code_site = self.request.query_params.get("code_site")
+
         if code_site:
+
             qs = qs.filter(code_site=code_site)
 
         search = self.request.query_params.get("search")
+
         if search:
+
             from django.db.models import Q
+
             qs = qs.filter(
                 Q(description__icontains=search)
                 | Q(objet_type__icontains=search)
@@ -362,49 +674,79 @@ class JournalViewSet(
 
 
 class GrandMaterielViewSet(JournalisedModelViewSet):
+
     queryset = Grand_Materiel.objects.all().select_related(
-        "code_sous_famille_materiel",
-        "code_sous_famille_materiel__code_famille_materiel",
-        "code_sous_famille_materiel__code_famille_materiel__code_categorie_gm",
-        "code_type_marque",
-        "code_type_marque__code_marque",
-        "code_filiale_g",
-        "user_id",
+        "code_sous_famille_materiel", "code_type_marque", "user_id", "code_filiale_g"
     )
+
     serializer_class = GrandMaterielSerializer
+
     journal_module = JournalModules.MATERIEL
+
     journal_objet_type = "Grand_Materiel"
+
     journal_filiale_field = "code_filiale_g"
+
     permission_required = ("gestion.grand_materiel", "analyse.journal_materiel")
+
     search_fields = ["code_materiel", "designation", "num_serie", "immatriculation"]
+
     filter_backends = [GrandMaterielOrderingFilter, GrandMaterielFilter]
+
     ordering_fields = [
-        "code_materiel", "designation", "num_serie", "immatriculation",
-        "code_filiale_g", "code_sous_famille", "code_type_marque",
-        "date_acquisition", "valeur_acquisition", "valeur_remplacement",
-        "taux_amortissement", "puissance_materiel", "est_bloque",
-        "libelle_famille", "libelle_categorie", "libelle_marque",
+        "code_materiel",
+        "designation",
+        "num_serie",
+        "immatriculation",
+        "code_filiale_g",
+        "code_sous_famille",
+        "code_type_marque",
+        "date_acquisition",
+        "valeur_acquisition",
+        "valeur_remplacement",
+        "taux_amortissement",
+        "puissance_materiel",
+        "est_bloque",
+        "libelle_famille",
+        "libelle_categorie",
+        "libelle_marque",
         "libelle_filiale",
-        "libelle_sous_famille", "libelle_type_marque",
+        "libelle_sous_famille",
+        "libelle_type_marque",
     ]
+
     ordering = ["code_materiel"]
 
     def perform_create(self, serializer):
+
         with transaction.atomic():
+
             instance = serializer.save()
 
             extra = self.request.data
+
             code_site = extra.get("code_site")
+
             date_affectation = extra.get("date_affectation")
+
             date_debut_affectation = extra.get("date_debut_affectation")
+
             date_fin_affectation = extra.get("date_fin_affectation")
+
             prenable = extra.get("prenable")
+
             code_type_etat_materiel = extra.get("code_type_etat_materiel")
+
             date_situation = extra.get("date_situation")
+
             situation_est_bloque = extra.get("situation_est_bloque")
+
             type_situation_id = extra.get("type_situation_id")
 
-            existing_count = Affectation_Materiel.objects.filter(code_materiel=instance).count()
+            existing_count = Affectation_Materiel.objects.filter(
+                code_materiel=instance
+            ).count()
+
             code_affectation = f"{instance.code_materiel}.{(existing_count + 1):03d}"
 
             affectation = Affectation_Materiel.objects.create(
@@ -420,9 +762,14 @@ class GrandMaterielViewSet(JournalisedModelViewSet):
             )
 
             if type_situation_id:
+
                 type_situation = Type_Situation.objects.get(id=type_situation_id)
+
             else:
-                type_situation = Type_Situation.objects.get(code_type_situation="CREATION")
+
+                type_situation = Type_Situation.objects.get(
+                    code_type_situation="CREATION"
+                )
 
             type_etat = Type_Etat_Materiel.objects.get(
                 code_type_etat_materiel=code_type_etat_materiel or "NEUF"
@@ -447,78 +794,139 @@ class GrandMaterielViewSet(JournalisedModelViewSet):
                 request=self.request,
                 code_filiale=self._get_filiale_code(instance),
                 code_site=self._get_site_code(instance),
-                description=f"Création de {self.journal_objet_type}",
+                description=f"CrÃÂ©ation de {self.journal_objet_type}",
             )
 
 
 class MarqueMaterielViewSet(JournalisedModelViewSet):
-    queryset = Marque_Materiel.objects.all()
-    serializer_class = MarqueMaterielSerializer
-    journal_module = JournalModules.MARQUE
-    journal_objet_type = "Marque_Materiel"
-    permission_required = "gestion.marques_materiel"
-    search_fields = ["code_marque", "libelle_marque"]
 
+    queryset = Marque_Materiel.objects.all()
+
+    serializer_class = MarqueMaterielSerializer
+
+    journal_module = JournalModules.MARQUE
+
+    journal_objet_type = "Marque_Materiel"
+
+    permission_required = "gestion.marques_materiel"
+
+    search_fields = ["code_marque", "libelle_marque"]
+    filter_backends = [MarqueMaterielFilter]
 
 class TypeMarqueViewSet(JournalisedModelViewSet):
-    queryset = Type_Marque.objects.all()
-    serializer_class = TypeMarqueSerializer
-    journal_module = JournalModules.TYPE_MARQUE
-    journal_objet_type = "Type_Marque"
-    permission_required = "gestion.types_marque"
-    search_fields = ["code_type_marque", "libelle_type_marque"]
 
+    queryset = Type_Marque.objects.all()
+
+    serializer_class = TypeMarqueSerializer
+
+    journal_module = JournalModules.TYPE_MARQUE
+
+    journal_objet_type = "Type_Marque"
+
+    permission_required = "gestion.types_marque"
+
+    search_fields = ["code_type_marque", "libelle_type_marque"]
+    search_fields = ["code_type_marque", "libelle_type_marque"]
+    filter_backends = [TypeMarqueFilter]
 
 class SousFamilleMaterielViewSet(JournalisedModelViewSet):
+
     queryset = Sous_Famille_Materiel.objects.all()
+
     serializer_class = SousFamilleMaterielSerializer
+
     journal_module = JournalModules.SOUS_FAMILLE
+
     journal_objet_type = "Sous_Famille_Materiel"
+
     permission_required = "gestion.sous_familles_materiel"
+    search_fields = ["code_sous_famille", "libelle_sous_famille"]
+    filter_backends = [SousFamilleMaterielFilter]
     search_fields = ["code_sous_famille", "libelle_sous_famille"]
 
 
 class FamilleMaterielViewSet(JournalisedModelViewSet):
+
     queryset = Famille_Materiel.objects.all()
+
     serializer_class = FamilleMaterielSerializer
+
     journal_module = JournalModules.FAMILLE
+
     journal_objet_type = "Famille_Materiel"
+    search_fields = ["code_famille", "libelle_famille"]
+    filter_backends = [FamilleMaterielFilter]
     permission_required = "gestion.familles_materiel"
+
     search_fields = ["code_famille", "libelle_famille"]
 
+
 class CategorieGMViewSet(JournalisedModelViewSet):
+
     queryset = Categorie_GM.objects.all()
+
     serializer_class = CategorieGMSerializer
+
     journal_module = JournalModules.CATEGORIE
+    search_fields = ["code_categorie", "libelle_categorie"]
+    filter_backends = [CategorieGMFilter]
     journal_objet_type = "Categorie_GM"
+
     permission_required = "gestion.categories_gm"
+
     search_fields = ["code_categorie", "libelle_categorie"]
 
+
 class TypeAffectationViewSet(JournalisedModelViewSet):
+
     queryset = Type_Affectation.objects.all()
+
     serializer_class = TypeAffectationSerializer
+    search_fields = ["code_type_affectation", "libelle_type_affectation"]
+    filter_backends = [TypeAffectationFilter]
     journal_module = JournalModules.AFFECTATION
+
     journal_objet_type = "Type_Affectation"
+
     permission_required = "gestion.types_affectation"
+
     search_fields = ["code_type_affectation", "libelle_type_affectation"]
 
+
 class TypeSituationViewSet(JournalisedModelViewSet):
+
     queryset = Type_Situation.objects.all()
+    search_fields = ["code_type_situation", "libelle_type_situation"]
+    filter_backends = [TypeSituationFilter]
     serializer_class = TypeSituationSerializer
+
     journal_module = JournalModules.SITUATION
+
     journal_objet_type = "Type_Situation"
+
     permission_required = "gestion.types_situation"
+
     search_fields = ["code_type_situation", "libelle_type_situation"]
 
+
 class TypeEtatMaterielViewSet(JournalisedModelViewSet):
+    search_fields = ["code_type_etat_materiel", "libelle_type_etat_materiel"]
+    filter_backends = [TypeEtatMaterielFilter]
     queryset = Type_Etat_Materiel.objects.all()
+
     serializer_class = TypeEtatMaterielSerializer
+
     journal_module = JournalModules.TYPE_ETAT
+
     journal_objet_type = "Type_Etat_Materiel"
+
     permission_required = "gestion.types_etat_materiel"
+
     search_fields = ["code_type_etat_materiel", "libelle_type_etat_materiel"]
 
+
 class SituationMaterielViewSet(JournalisedModelViewSet):
+
     queryset = Situation_Materiel.objects.all().select_related(
         "affectation_id",
         "affectation_id__code_materiel",
@@ -529,55 +937,96 @@ class SituationMaterielViewSet(JournalisedModelViewSet):
         "code_type_etat_materiel",
         "user_id",
     )
+
     serializer_class = SituationMaterielSerializer
+
     journal_module = JournalModules.SITUATION
+
     journal_objet_type = "Situation_Materiel"
+
     permission_required = "gestion.situations"
+
     search_fields = ["id_situation", "affectation_id__code_materiel__code_materiel"]
+
     filter_backends = [OrderingFilter, SituationMaterielFilter]
+
     ordering_fields = [
         "date_situation",
         "id_situation",
         "est_bloque",
         "date_modification",
-        "affectation_id__code_affectation",
+        "date_modification",
+        "date_modification",
+        "affectation_id__code_materiel__code_materiel",
+        "affectation_id__code_filiale_mere__code_filiale",
+        "affectation_id__code_site__code_site",
+        "user_id__username",
         "type_situation_id__code_type_affectation",
         "type_situation_id__code_type_situation",
         "code_type_etat_materiel__code_type_etat_materiel",
     ]
+
     ordering = ["-date_situation"]
 
+
+
+
 class EntrepriseViewSet(JournalisedModelViewSet):
+
     queryset = Entreprise.objects.all()
+
     serializer_class = EntrepriseSerializer
+
     journal_module = JournalModules.ADMINISTRATION
+
     journal_objet_type = "Entreprise"
-    permission_required = "gestion.entreprises"
-    search_fields = ["code_entreprise", "raison_sociale"]
+
 
 class FilialeViewSet(JournalisedModelViewSet):
+
     queryset = Filiale.objects.all()
+
     serializer_class = FilialeSerializer
+
     journal_module = JournalModules.ADMINISTRATION
+
     journal_objet_type = "Filiale"
+
     permission_required = "gestion.filiales"
+
     search_fields = ["code_filiale", "libelle_filiale"]
+    filter_backends = [FilialeFilter]
+
 
 class AffectationMaterielViewSet(JournalisedModelViewSet):
+
     queryset = Affectation_Materiel.objects.all().select_related(
         "code_materiel",
         "code_filiale_mere",
         "code_site",
         "user_id",
     )
+
     serializer_class = AffectationMaterielSerializer
+
     journal_module = JournalModules.AFFECTATION
+
     journal_objet_type = "Affectation_Materiel"
+
     journal_filiale_field = "code_filiale_mere"
+
     journal_site_field = "code_site"
+
     permission_required = "gestion.affectations"
-    search_fields = ["code_affectation", "code_materiel__code_materiel", "code_site__code_site"]
+
+    search_fields = [
+        "code_affectation",
+        "code_materiel__code_materiel",
+        "code_site__code_site",
+    ]
+
     filter_backends = [OrderingFilter, AffectationMaterielFilter]
+
     ordering_fields = [
         "code_affectation",
         "date_affectation",
@@ -587,38 +1036,32 @@ class AffectationMaterielViewSet(JournalisedModelViewSet):
         "code_filiale_mere__code_filiale",
         "code_site__code_site",
     ]
+
     ordering = ["-date_affectation"]
 
-class DivisionViewSet(JournalisedModelViewSet):
-    queryset = Division.objects.all()
-    serializer_class = DivisionSerializer
-    journal_module = JournalModules.ADMINISTRATION
-    journal_objet_type = "Division"
-    permission_required = "gestion.divisions"
-    search_fields = ["code_division", "libelle_division"]
-
-class FamilleStructuresViewSet(JournalisedModelViewSet):
-    queryset = Famille_Structures.objects.all()
-    serializer_class = FamilleStructuresSerializer
-    journal_module = JournalModules.ADMINISTRATION
-    journal_objet_type = "Famille_Structures"
-    permission_required = "gestion.familles_structures"
-    search_fields = ["code_famille_structure", "libelle_famille_structure"]
 
 class PointageViewSet(JournalisedModelViewSet):
+
     queryset = Pointage.objects.all().select_related(
         "affectation_id",
         "affectation_id__code_materiel",
-        "affectation_id__code_filiale_mere",
         "affectation_id__code_site",
+        "affectation_id__code_filiale_mere",
         "user_id",
     )
+
     serializer_class = PointageSerializer
+
     journal_module = JournalModules.POINTAGE
+
     journal_objet_type = "Pointage"
+
     permission_required = "gestion.pointages"
+
     search_fields = ["affectation_id__code_affectation", "mmaa"]
+
     filter_backends = [PointageOrderingFilter, PointageFilter]
+
     ordering_fields = [
         "mmaa",
         "taux_location",
@@ -643,126 +1086,247 @@ class PointageViewSet(JournalisedModelViewSet):
         "affectation_id__code_materiel__code_materiel",
         "affectation_id__code_filiale_mere__code_filiale",
         "affectation_id__code_site__code_site",
+        "montant_service",
+        "montant_chomage",
+        "montant_panne",
+        "date_modification",
+        "est_bloque",
+        "created_at",
+        "updated_at",
+        "user",
+        "code_affectation",
+        "code_materiel",
+        "code_site",
+        "code_filiale",
+        "user_id__username",
+        "affectation_id__code_affectation",
+        "affectation_id__code_materiel__code_materiel",
+        "affectation_id__code_filiale_mere__code_filiale",
+        "affectation_id__code_site__code_site",
     ]
+
     ordering = ["-mmaa", "-date_modification"]
 
+
 class RegularisationGMViewSet(JournalisedModelViewSet):
+
     queryset = Regularisation_GM.objects.all()
+
     serializer_class = RegularisationGMSerializer
+
     journal_module = JournalModules.REGULARISATION
+
     journal_objet_type = "Regularisation_GM"
+
     journal_site_field = "code_site"
-    permission_required = "gestion.regularisations_gm"
+
+    search_fields = ["code_regularisation"]
+    filter_backends = [RegularisationGMFilter]
+
     search_fields = ["code_site__code_site", "mmaa"]
 
 
 class RegularisationMoisGM2ViewSet(JournalisedModelViewSet):
+
     queryset = Regularisation_Mois_GM2.objects.all()
+
     serializer_class = RegularisationMoisGM2Serializer
+
     journal_module = JournalModules.REGULARISATION
+    search_fields = ["code_regularisation"]
+    filter_backends = [RegularisationMoisGM2Filter]
     journal_objet_type = "Regularisation_Mois_GM2"
+
     permission_required = "gestion.regularisations_mois"
+
     search_fields = ["code_regularisation"]
 
+
+
+class DivisionViewSet(JournalisedModelViewSet):
+
+    queryset = Division.objects.all()
+
+    serializer_class = DivisionSerializer
+
+    journal_module = JournalModules.ADMINISTRATION
+
+    journal_objet_type = "Division"
+
+    permission_required = "gestion.divisions"
+
+    search_fields = ["code_division", "libelle_division"]
+    filter_backends = [DivisionFilter]
+
+
+class FamilleStructuresViewSet(JournalisedModelViewSet):
+
+    queryset = Famille_Structures.objects.all()
+
+    serializer_class = FamilleStructuresSerializer
+
+    journal_module = JournalModules.ADMINISTRATION
+
+    journal_objet_type = "Famille_Structures"
+
+    permission_required = "gestion.familles_structures"
+
+    search_fields = ["code_famille_structure", "libelle_famille_structure"]
+    filter_backends = [FamilleStructuresFilter]
+
+
 class SiteViewSet(JournalisedModelViewSet):
+
     queryset = Site.objects.all()
+
     serializer_class = SiteSerializer
+    search_fields = ["code_site", "libelle_site", "code_region"]
+    filter_backends = [SiteFilter]
     journal_module = JournalModules.SITE
+
     journal_objet_type = "Site"
+
     journal_filiale_field = "code_filiale"
+
     permission_required = "gestion.sites"
+
     search_fields = ["code_site", "libelle_site", "code_region"]
 
+
 def pointage_upload_view(request):
-    #this used to import csv pointage data from db (features bulk import to make it faster)
+
+    # this used to import csv pointage data from db (features bulk import to make it faster)
+
     if request.method == "POST":
 
         file_obj = request.FILES["file"]
+
         service = PointageImportService(file_obj)
+
         service.import_data()
- 
-        return JsonResponse({
-            "success": True,
-            "message": "Import completed successfully"
-        })
+
+        return JsonResponse(
+            {"success": True, "message": "Import completed successfully"}
+        )
 
     return render(request, "pointage_upload.html")
+
 
 def situation_upload_view(request):
 
     if request.method == "POST":
 
         file_obj = request.FILES["file"]
+
         service = SituationImportService(file_obj)
+
         service.import_data()
- 
-        return JsonResponse({
-            "success": True,
-            "message": "Import completed successfully"
-        })
+
+        return JsonResponse(
+            {"success": True, "message": "Import completed successfully"}
+        )
 
     return render(request, "situation_upload.html")
 
+
 class TP_AQ_API_View(PagePermissionRequiredMixin, APIView):
+
     permission_required = "analyse.quantitative"
 
     def get(self, request):
+
         code_filiale = request.query_params.get("code_filiale")
+
         date_debut = request.query_params.get("date_debut")
+
         date_fin = request.query_params.get("date_fin")
 
         data = AnalyseQuantitative.get_situations(
             code_filiale=code_filiale,
             date_debut=date_debut,
             date_fin=date_fin,
+            include_pending=(
+                request.query_params.get("include_pending", "false").lower() == "true"
+            )
+            and getattr(request.user, "is_superuser", False),
         )
 
         return Response(data)
 
+
 class TP_AQ_resume_API_View(PagePermissionRequiredMixin, APIView):
+
     permission_required = "analyse.quantitative"
 
     def get(self, request):
+
         code_filiale = request.query_params.get("code_filiale")
+
         date_debut = request.query_params.get("date_debut")
+
         date_fin = request.query_params.get("date_fin")
+
+        include_pending = request.query_params.get(
+            "include_pending", "false"
+        ).lower() == "true" and getattr(request.user, "is_superuser", False)
 
         data = AnalyseQuantitativeResume.get_situations_resume(
             code_filiale=code_filiale,
             date_debut=date_debut,
             date_fin=date_fin,
+            include_pending=include_pending,
         )
 
         return Response(data)
 
+
 class TP_AE_API_View(PagePermissionRequiredMixin, APIView):
+
     permission_required = "analyse.exploitation"
 
     def get(self, request):
+
         code_filiale = request.query_params.get("code_filiale")
+
         date_debut = request.query_params.get("date_debut")
+
         date_fin = request.query_params.get("date_fin")
+
+        include_pending = request.query_params.get(
+            "include_pending", "false"
+        ).lower() == "true" and getattr(request.user, "is_superuser", False)
 
         data = AnalyseExploitation.get_pointages(
             code_filiale=code_filiale,
             date_debut=date_debut,
             date_fin=date_fin,
+            include_pending=include_pending,
         )
 
         return Response(data)
 
+
 class TP_AE_resume_API_View(PagePermissionRequiredMixin, APIView):
+
     permission_required = "analyse.exploitation"
 
     def get(self, request):
+
         code_filiale = request.query_params.get("code_filiale")
+
         date_debut = request.query_params.get("date_debut")
+
         date_fin = request.query_params.get("date_fin")
+
+        include_pending = request.query_params.get(
+            "include_pending", "false"
+        ).lower() == "true" and getattr(request.user, "is_superuser", False)
 
         data = AnalyseExploitationResume.get_pointages_resume(
             code_filiale=code_filiale,
             date_debut=date_debut,
             date_fin=date_fin,
+            include_pending=include_pending,
         )
 
         return Response(data)
@@ -770,26 +1334,63 @@ class TP_AE_resume_API_View(PagePermissionRequiredMixin, APIView):
 
 class DashboardMaterialDetailsAPIView(PagePermissionRequiredMixin, APIView):
     """
+
+
+
     GET /api/dashboard/material-details/
+
+
+
     Query params:
+
+
+
       code_filiale (optional)
+
+
+
       date_debut (optional, YYYY-MM-DD): start of period
+
+
+
       date_fin (optional, YYYY-MM-DD): end of period
+
+
+
       code_famille (optional)
+
+
+
       search (optional)
+
+
+
       page (optional, default 1)
+
+
+
       page_size (optional, default 50)
+
+
+
     """
 
     permission_required = "analyse.dashboard"
 
     def get(self, request):
+
         code_filiale = request.query_params.get("code_filiale")
+
         date_debut = request.query_params.get("date_debut")
+
         date_fin = request.query_params.get("date_fin")
+
         code_famille = request.query_params.get("code_famille")
+
         search = request.query_params.get("search")
+
         page = int(request.query_params.get("page", 1))
+
         page_size = int(request.query_params.get("page_size", 50))
 
         qs = Grand_Materiel.objects.filter(est_bloque=False).select_related(
@@ -800,12 +1401,17 @@ class DashboardMaterialDetailsAPIView(PagePermissionRequiredMixin, APIView):
         )
 
         if code_filiale:
+
             qs = qs.filter(code_filiale_g=code_filiale)
 
         if code_famille:
-            qs = qs.filter(code_sous_famille_materiel__code_famille_materiel__code_famille=code_famille)
+
+            qs = qs.filter(
+                code_sous_famille_materiel__code_famille_materiel__code_famille=code_famille
+            )
 
         if search:
+
             qs = qs.filter(
                 Q(code_materiel__icontains=search)
                 | Q(designation__icontains=search)
@@ -813,37 +1419,65 @@ class DashboardMaterialDetailsAPIView(PagePermissionRequiredMixin, APIView):
             )
 
         total = qs.count()
+
         start = (page - 1) * page_size
+
         end = start + page_size
+
         items = qs[start:end]
 
         result = []
+
         for gm in items:
+
             sous_famille = gm.code_sous_famille_materiel
+
             famille = sous_famille.code_famille_materiel if sous_famille else None
 
-            result.append({
-                "code_materiel": gm.code_materiel,
-                "designation": gm.designation,
-                "code_sous_famille": sous_famille.code_sous_famille if sous_famille else "",
-                "libelle_sous_famille": sous_famille.libelle_sous_famille if sous_famille else "",
-                "code_famille": famille.code_famille if famille else "",
-                "libelle_famille": famille.libelle_famille if famille else "",
-                "code_type_marque": gm.code_type_marque.code_type_marque if gm.code_type_marque else "",
-                "libelle_type_marque": gm.code_type_marque.libelle_type_marque if gm.code_type_marque else "",
-                "code_filiale": gm.code_filiale_g.code_filiale if gm.code_filiale_g else "",
-                "libelle_filiale": gm.code_filiale_g.libelle_filiale if gm.code_filiale_g else "",
-                "est_bloque": gm.est_bloque,
-            })
+            result.append(
+                {
+                    "code_materiel": gm.code_materiel,
+                    "designation": gm.designation,
+                    "code_sous_famille": (
+                        sous_famille.code_sous_famille if sous_famille else ""
+                    ),
+                    "libelle_sous_famille": (
+                        sous_famille.libelle_sous_famille if sous_famille else ""
+                    ),
+                    "code_famille": famille.code_famille if famille else "",
+                    "libelle_famille": famille.libelle_famille if famille else "",
+                    "code_type_marque": (
+                        gm.code_type_marque.code_type_marque
+                        if gm.code_type_marque
+                        else ""
+                    ),
+                    "libelle_type_marque": (
+                        gm.code_type_marque.libelle_type_marque
+                        if gm.code_type_marque
+                        else ""
+                    ),
+                    "code_filiale": (
+                        gm.code_filiale_g.code_filiale if gm.code_filiale_g else ""
+                    ),
+                    "libelle_filiale": (
+                        gm.code_filiale_g.libelle_filiale if gm.code_filiale_g else ""
+                    ),
+                    "est_bloque": gm.est_bloque,
+                }
+            )
 
-        return Response({
-            "items": result,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-        })
+        return Response(
+            {
+                "items": result,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            }
+        )
+
 
 class ValidatePointageView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.pointage"
 
     parser_classes = [MultiPartParser]
@@ -851,27 +1485,33 @@ class ValidatePointageView(PagePermissionRequiredMixin, APIView):
     def post(self, request):
 
         # -----------------------------------------------------
+
         # 1. File
+
         # -----------------------------------------------------
 
         file = request.FILES.get("file")
 
         if file is None:
+
             return Response(
                 {
                     "success": False,
-                    "message": "Aucun fichier reçu.",
+                    "message": "Aucun fichier reÃÂ§u.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # -----------------------------------------------------
+
         # 2. Filiale
+
         # -----------------------------------------------------
 
         filiale = request.POST.get("filiale")
 
         if not filiale or not filiale.strip():
+
             return Response(
                 {
                     "success": False,
@@ -883,12 +1523,15 @@ class ValidatePointageView(PagePermissionRequiredMixin, APIView):
         filiale = filiale.strip()
 
         # -----------------------------------------------------
+
         # 3. Mapping
+
         # -----------------------------------------------------
 
         raw_mapping = request.POST.get("mapping")
 
         if not raw_mapping:
+
             return Response(
                 {
                     "success": False,
@@ -898,9 +1541,11 @@ class ValidatePointageView(PagePermissionRequiredMixin, APIView):
             )
 
         try:
+
             mapping = json.loads(raw_mapping)
 
         except (json.JSONDecodeError, TypeError):
+
             return Response(
                 {
                     "success": False,
@@ -910,6 +1555,7 @@ class ValidatePointageView(PagePermissionRequiredMixin, APIView):
             )
 
         if not isinstance(mapping, dict):
+
             return Response(
                 {
                     "success": False,
@@ -919,7 +1565,9 @@ class ValidatePointageView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 4. Validation
+
         # -----------------------------------------------------
 
         try:
@@ -934,6 +1582,7 @@ class ValidatePointageView(PagePermissionRequiredMixin, APIView):
             report = validator.validate()
 
         except Exception as exc:
+
             return Response(
                 {
                     "success": False,
@@ -943,13 +1592,17 @@ class ValidatePointageView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 5. Serialize validation result
+
         # -----------------------------------------------------
 
         response_data = report.to_dict()
 
         # -----------------------------------------------------
+
         # 6. Cache only successful validations
+
         # -----------------------------------------------------
 
         if report.success:
@@ -969,95 +1622,141 @@ class ValidatePointageView(PagePermissionRequiredMixin, APIView):
 
 
 class ImportPointageView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.pointage"
 
     parser_classes = [JSONParser]
 
     def post(self, request):
 
-        # -----------------------------------------------------
-        # 1. Validation ID
-        # -----------------------------------------------------
-
-        validation_id = request.data.get("validation_id")
-
-        if not validation_id:
-            return Response(
-                {
-                    "success": False,
-                    "message": "L'identifiant de validation est obligatoire.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # -----------------------------------------------------
-        # 2. Import already validated rows
-        # -----------------------------------------------------
+        import logging
+        logger = logging.getLogger(__name__)
 
         try:
+            # -----------------------------------------------------
 
-            importer = PointageCsvImporter(
-                validation_id=validation_id,
-            )
+            # 1. Validation ID
 
-            result = importer.import_data()
+            # -----------------------------------------------------
+
+            validation_id = request.data.get("validation_id")
+
+            if not validation_id:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": "L'identifiant de validation est obligatoire.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # -----------------------------------------------------
+
+            # 2. Import already validated rows
+
+            # -----------------------------------------------------
 
             try:
-                log_csv_import(
-                    request,
-                    result,
-                    JournalModules.POINTAGE,
+
+                importer = PointageCsvImporter(
+                    validation_id=validation_id,
+                    user=request.user,
                 )
-            except Exception:
-                pass
 
-        except PointageValidationExpiredError as exc:
+                result = importer.import_data()
+
+                logger.info(f"ImportPointageView result: {result}")
+
+                try:
+
+                    log_csv_import(
+                        request,
+                        result,
+                        JournalModules.POINTAGE,
+                    )
+
+                except Exception:
+
+                    pass
+
+            except PointageValidationExpiredError as exc:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": str(exc),
+                    },
+                    status=status.HTTP_410_GONE,
+                )
+
+            except PointageImportError as exc:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": str(exc),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            except Exception as exc:
+                logger.error(f"ImportPointageView import_data failed: {exc}", exc_info=True)
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Une erreur inattendue est survenue pendant l'import.",
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            # -----------------------------------------------------
+
+            # Notify admins about pending imports
+
+            # -----------------------------------------------------
+
+            try:
+
+                notify_pending_import(
+                    request=request,
+                    result=result,
+                    module_name="Pointage",
+                )
+
+            except Exception as e:
+
+                logger.error(f"notify_pending_import failed: {e}", exc_info=True)
+
+            # Build response data - ensure no model instances
+            response_data = {
+                "success": result.get("success", True),
+                "imported_rows": result.get("imported_rows", 0),
+                "filiale": result.get("filiale"),
+                "filename": result.get("filename"),
+                "validation_summary": result.get("validation_summary"),
+                "import_batch_id": result.get("import_batch_id"),
+                "message": "Import terminé avec succès.",
+            }
 
             return Response(
-                {
-                    "success": False,
-                    "message": str(exc),
-                },
-                status=status.HTTP_410_GONE,
+                response_data,
+                status=status.HTTP_201_CREATED,
             )
 
-        except PointageImportError as exc:
-
+        except Exception as exc:
+            logger.error(f"ImportPointageView post failed: {exc}", exc_info=True)
             return Response(
                 {
                     "success": False,
-                    "message": str(exc),
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-
-        except Exception:
-
-            return Response(
-                {
-                    "success": False,
-                    "message": (
-                        "Une erreur inattendue est survenue "
-                        "pendant l'import."
-                    ),
+                    "message": "Une erreur inattendue est survenue.",
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # -----------------------------------------------------
-        # 3. Successful import
-        # -----------------------------------------------------
-
-        return Response(
-            {
-                **result,
-                "message": "Import terminé avec succès.",
-            },
-            status=status.HTTP_201_CREATED,
-        )
-
 
 class ValidateGrandMaterielView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.grand_materiel"
 
     parser_classes = [MultiPartParser]
@@ -1065,7 +1764,9 @@ class ValidateGrandMaterielView(PagePermissionRequiredMixin, APIView):
     def post(self, request):
 
         # -----------------------------------------------------
+
         # 1. Uploaded file
+
         # -----------------------------------------------------
 
         file = request.FILES.get("file")
@@ -1075,25 +1776,33 @@ class ValidateGrandMaterielView(PagePermissionRequiredMixin, APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Aucun fichier reçu.",
+                    "message": "Aucun fichier reÃÂ§u.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # -----------------------------------------------------
+
         # 2. Selected filiale
+
         #
+
         # The UI filiale is optional if the CSV already
+
         # contains the code_filiale_g column.
+
         # -----------------------------------------------------
 
         filiale = request.POST.get("filiale")
 
         if filiale:
+
             filiale = filiale.strip()
 
         # -----------------------------------------------------
+
         # 3. Column mapping
+
         # -----------------------------------------------------
 
         raw_mapping = request.POST.get("mapping")
@@ -1133,7 +1842,9 @@ class ValidateGrandMaterielView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 4. Validate CSV
+
         # -----------------------------------------------------
 
         try:
@@ -1158,13 +1869,17 @@ class ValidateGrandMaterielView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 5. Build response
+
         # -----------------------------------------------------
 
         response_data = report.to_dict()
 
         # -----------------------------------------------------
+
         # 6. Cache successful validation
+
         # -----------------------------------------------------
 
         if report.success:
@@ -1178,15 +1893,19 @@ class ValidateGrandMaterielView(PagePermissionRequiredMixin, APIView):
             response_data["validation_id"] = validation_id
 
         # -----------------------------------------------------
+
         # 7. Return validation result
+
         # -----------------------------------------------------
 
         return Response(
             response_data,
             status=status.HTTP_200_OK,
         )
-    
+
+
 class ImportGrandMaterielView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.grand_materiel"
 
     parser_classes = [JSONParser]
@@ -1194,7 +1913,9 @@ class ImportGrandMaterielView(PagePermissionRequiredMixin, APIView):
     def post(self, request):
 
         # -----------------------------------------------------
+
         # 1. Validation ID
+
         # -----------------------------------------------------
 
         validation_id = request.data.get("validation_id")
@@ -1210,24 +1931,30 @@ class ImportGrandMaterielView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 2. Import validated rows
+
         # -----------------------------------------------------
 
         try:
 
             importer = GMCsvImporter(
                 validation_id=validation_id,
+                user=request.user,
             )
 
             result = importer.import_data()
 
             try:
+
                 log_csv_import(
                     request,
                     result,
                     JournalModules.MATERIEL,
                 )
+
             except Exception:
+
                 pass
 
         except GMValidationExpiredError as exc:
@@ -1256,28 +1983,51 @@ class ImportGrandMaterielView(PagePermissionRequiredMixin, APIView):
                 {
                     "success": False,
                     "message": (
-                        "Une erreur inattendue est survenue "
-                        "pendant l'import."
+                        "Une erreur inattendue est survenue " "pendant l'import."
                     ),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         # -----------------------------------------------------
+
         # 3. Successful import
+
         # -----------------------------------------------------
+
+        # -----------------------------------------------------
+
+        # Notify admins about pending imports
+
+        # -----------------------------------------------------
+
+        try:
+
+            notify_pending_import(
+                request=request,
+                result=result,
+                module_name="Grand Matériel",
+            )
+
+        except Exception as e:
+
+            import logging
+
+            logger = logging.getLogger(__name__)
+
+            logger.error(f"notify_pending_import failed: {e}", exc_info=True)
 
         return Response(
             {
                 **result,
-                "message": "Import terminé avec succès.",
+                "message": "Import Terminé avec Succès.",
             },
             status=status.HTTP_201_CREATED,
-)
-        
+        )
 
 
 class ValidateMarqueView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.marque"
 
     parser_classes = [MultiPartParser]
@@ -1285,7 +2035,9 @@ class ValidateMarqueView(PagePermissionRequiredMixin, APIView):
     def post(self, request):
 
         # -----------------------------------------------------
+
         # 1. Uploaded file
+
         # -----------------------------------------------------
 
         file = request.FILES.get("file")
@@ -1295,14 +2047,15 @@ class ValidateMarqueView(PagePermissionRequiredMixin, APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Aucun fichier reçu.",
+                    "message": "Aucun fichier reÃÂ§u.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-
         # -----------------------------------------------------
+
         # 2. Column mapping
+
         # -----------------------------------------------------
 
         raw_mapping = request.POST.get("mapping")
@@ -1342,7 +2095,9 @@ class ValidateMarqueView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 3. Validate CSV
+
         # -----------------------------------------------------
 
         try:
@@ -1366,35 +2121,43 @@ class ValidateMarqueView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 4. Build response
+
         # -----------------------------------------------------
 
         response_data = report.to_dict()
 
         # -----------------------------------------------------
+
         # 5. Cache successful validation
+
         # -----------------------------------------------------
 
         if report.success:
 
             validation_id = ValidationCache.save(
                 report=report,
-                filiale='',
+                filiale="",
                 filename=file.name,
             )
 
             response_data["validation_id"] = validation_id
 
         # -----------------------------------------------------
+
         # 6. Return validation result
+
         # -----------------------------------------------------
 
         return Response(
             response_data,
             status=status.HTTP_200_OK,
         )
-    
+
+
 class ImportMarqueView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.marque"
 
     parser_classes = [JSONParser]
@@ -1402,7 +2165,9 @@ class ImportMarqueView(PagePermissionRequiredMixin, APIView):
     def post(self, request):
 
         # -----------------------------------------------------
+
         # 1. Validation ID
+
         # -----------------------------------------------------
 
         validation_id = request.data.get("validation_id")
@@ -1418,7 +2183,9 @@ class ImportMarqueView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 2. Import validated rows
+
         # -----------------------------------------------------
 
         try:
@@ -1430,12 +2197,15 @@ class ImportMarqueView(PagePermissionRequiredMixin, APIView):
             result = importer.import_data()
 
             try:
+
                 log_csv_import(
                     request,
                     result,
                     JournalModules.MARQUE,
                 )
+
             except Exception:
+
                 pass
 
         except MarqueValidationExpiredError as exc:
@@ -1464,35 +2234,63 @@ class ImportMarqueView(PagePermissionRequiredMixin, APIView):
                 {
                     "success": False,
                     "message": (
-                        "Une erreur inattendue est survenue "
-                        "pendant l'import."
+                        "Une erreur inattendue est survenue " "pendant l'import."
                     ),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         # -----------------------------------------------------
+
         # 3. Successful import
+
         # -----------------------------------------------------
+
+        # -----------------------------------------------------
+
+        # Notify admins about pending imports
+
+        # -----------------------------------------------------
+
+        try:
+
+            notify_pending_import(
+                request=request,
+                result=result,
+                module_name="Marque",
+            )
+
+        except Exception as e:
+
+            import logging
+
+            logger = logging.getLogger(__name__)
+
+            logger.error(f"notify_pending_import failed: {e}", exc_info=True)
 
         return Response(
             {
                 **result,
-                "message": "Import terminé avec succès.",
+                "message": "Import Terminé avec Succès.",
             },
             status=status.HTTP_201_CREATED,
         )
-    
+
+
 class ValidateTypeMarqueView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.type_marque"
 
     parser_classes = [MultiPartParser]
 
     def post(self, request):
-        print ("this seems okay")
+
+        print("this seems okay")
 
         # -----------------------------------------------------
+
         # 1. Uploaded file
+
         # -----------------------------------------------------
 
         file = request.FILES.get("file")
@@ -1502,14 +2300,15 @@ class ValidateTypeMarqueView(PagePermissionRequiredMixin, APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Aucun fichier reçu.",
+                    "message": "Aucun fichier reÃÂ§u.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-
         # -----------------------------------------------------
+
         # 2. Column mapping
+
         # -----------------------------------------------------
 
         raw_mapping = request.POST.get("mapping")
@@ -1549,7 +2348,9 @@ class ValidateTypeMarqueView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 3. Validate CSV
+
         # -----------------------------------------------------
 
         try:
@@ -1573,27 +2374,33 @@ class ValidateTypeMarqueView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 4. Build response
+
         # -----------------------------------------------------
 
         response_data = report.to_dict()
 
         # -----------------------------------------------------
+
         # 5. Cache successful validation
+
         # -----------------------------------------------------
 
         if report.success:
 
             validation_id = ValidationCache.save(
                 report=report,
-                filiale='',
+                filiale="",
                 filename=file.name,
             )
 
             response_data["validation_id"] = validation_id
 
         # -----------------------------------------------------
+
         # 6. Return validation result
+
         # -----------------------------------------------------
 
         return Response(
@@ -1601,7 +2408,9 @@ class ValidateTypeMarqueView(PagePermissionRequiredMixin, APIView):
             status=status.HTTP_200_OK,
         )
 
+
 class ImportTypeMarqueView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.type_marque"
 
     parser_classes = [JSONParser]
@@ -1609,7 +2418,9 @@ class ImportTypeMarqueView(PagePermissionRequiredMixin, APIView):
     def post(self, request):
 
         # -----------------------------------------------------
+
         # 1. Validation ID
+
         # -----------------------------------------------------
 
         validation_id = request.data.get("validation_id")
@@ -1625,24 +2436,30 @@ class ImportTypeMarqueView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 2. Import validated rows
+
         # -----------------------------------------------------
 
         try:
 
             importer = TypeMarqueCsvImporter(
                 validation_id=validation_id,
+                user=request.user,
             )
 
             result = importer.import_data()
 
             try:
+
                 log_csv_import(
                     request,
                     result,
                     JournalModules.TYPE_MARQUE,
                 )
+
             except Exception:
+
                 pass
 
         except TypeMarqueValidationExpiredError as exc:
@@ -1671,35 +2488,63 @@ class ImportTypeMarqueView(PagePermissionRequiredMixin, APIView):
                 {
                     "success": False,
                     "message": (
-                        "Une erreur inattendue est survenue "
-                        "pendant l'import."
+                        "Une erreur inattendue est survenue " "pendant l'import."
                     ),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         # -----------------------------------------------------
+
         # 3. Successful import
+
         # -----------------------------------------------------
+
+        # -----------------------------------------------------
+
+        # Notify admins about pending imports
+
+        # -----------------------------------------------------
+
+        try:
+
+            notify_pending_import(
+                request=request,
+                result=result,
+                module_name="Type Marque",
+            )
+
+        except Exception as e:
+
+            import logging
+
+            logger = logging.getLogger(__name__)
+
+            logger.error(f"notify_pending_import failed: {e}", exc_info=True)
 
         return Response(
             {
                 **result,
-                "message": "Import terminé avec succès.",
+                "message": "Import Terminé avec Succès.",
             },
             status=status.HTTP_201_CREATED,
         )
-    
+
+
 class ValidateSousFamilleView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.sous_famille"
 
     parser_classes = [MultiPartParser]
 
     def post(self, request):
-        print ("this seems okay")
+
+        print("this seems okay")
 
         # -----------------------------------------------------
+
         # 1. Uploaded file
+
         # -----------------------------------------------------
 
         file = request.FILES.get("file")
@@ -1709,14 +2554,15 @@ class ValidateSousFamilleView(PagePermissionRequiredMixin, APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Aucun fichier reçu.",
+                    "message": "Aucun fichier reÃÂ§u.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-
         # -----------------------------------------------------
+
         # 2. Column mapping
+
         # -----------------------------------------------------
 
         raw_mapping = request.POST.get("mapping")
@@ -1756,7 +2602,9 @@ class ValidateSousFamilleView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 3. Validate CSV
+
         # -----------------------------------------------------
 
         try:
@@ -1780,27 +2628,33 @@ class ValidateSousFamilleView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 4. Build response
+
         # -----------------------------------------------------
 
         response_data = report.to_dict()
 
         # -----------------------------------------------------
+
         # 5. Cache successful validation
+
         # -----------------------------------------------------
 
         if report.success:
 
             validation_id = ValidationCache.save(
                 report=report,
-                filiale='',
+                filiale="",
                 filename=file.name,
             )
 
             response_data["validation_id"] = validation_id
 
         # -----------------------------------------------------
+
         # 6. Return validation result
+
         # -----------------------------------------------------
 
         return Response(
@@ -1808,7 +2662,9 @@ class ValidateSousFamilleView(PagePermissionRequiredMixin, APIView):
             status=status.HTTP_200_OK,
         )
 
+
 class ImportSousFamilleView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.sous_famille"
 
     parser_classes = [JSONParser]
@@ -1816,7 +2672,9 @@ class ImportSousFamilleView(PagePermissionRequiredMixin, APIView):
     def post(self, request):
 
         # -----------------------------------------------------
+
         # 1. Validation ID
+
         # -----------------------------------------------------
 
         validation_id = request.data.get("validation_id")
@@ -1832,24 +2690,30 @@ class ImportSousFamilleView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
-        # 2. Import validated rows
+
+# 2. Import validated rows
+
         # -----------------------------------------------------
 
         try:
 
             importer = SousFamilleCsvImporter(
                 validation_id=validation_id,
+                user=request.user,
             )
 
             result = importer.import_data()
 
             try:
+
                 log_csv_import(
                     request,
                     result,
                     JournalModules.SOUS_FAMILLE,
                 )
+
             except Exception:
+
                 pass
 
         except SousFamilleValidationExpiredError as exc:
@@ -1878,27 +2742,51 @@ class ImportSousFamilleView(PagePermissionRequiredMixin, APIView):
                 {
                     "success": False,
                     "message": (
-                        "Une erreur inattendue est survenue "
-                        "pendant l'import."
+                        "Une erreur inattendue est survenue " "pendant l'import."
                     ),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         # -----------------------------------------------------
+
         # 3. Successful import
+
         # -----------------------------------------------------
+
+        # -----------------------------------------------------
+
+        # Notify admins about pending imports
+
+        # -----------------------------------------------------
+
+        try:
+
+            notify_pending_import(
+                request=request,
+                result=result,
+                module_name="Sous Famille",
+            )
+
+        except Exception as e:
+
+            import logging
+
+            logger = logging.getLogger(__name__)
+
+            logger.error(f"notify_pending_import failed: {e}", exc_info=True)
 
         return Response(
             {
                 **result,
-                "message": "Import terminé avec succès.",
+                "message": "Import Terminé avec Succès.",
             },
             status=status.HTTP_201_CREATED,
         )
 
 
 class ValidateFamilleView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.famille"
 
     parser_classes = [MultiPartParser]
@@ -1912,7 +2800,7 @@ class ValidateFamilleView(PagePermissionRequiredMixin, APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Aucun fichier reçu.",
+                    "message": "Aucun fichier reÃÂ§u.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -1930,7 +2818,9 @@ class ValidateFamilleView(PagePermissionRequiredMixin, APIView):
             )
 
         try:
+
             mapping = json.loads(raw_mapping)
+
         except (json.JSONDecodeError, TypeError):
 
             return Response(
@@ -1977,7 +2867,7 @@ class ValidateFamilleView(PagePermissionRequiredMixin, APIView):
 
             validation_id = ValidationCache.save(
                 report=report,
-                filiale='',
+                filiale="",
                 filename=file.name,
             )
 
@@ -1990,6 +2880,7 @@ class ValidateFamilleView(PagePermissionRequiredMixin, APIView):
 
 
 class ImportFamilleView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.famille"
 
     parser_classes = [JSONParser]
@@ -2012,17 +2903,21 @@ class ImportFamilleView(PagePermissionRequiredMixin, APIView):
 
             importer = FamilleCsvImporter(
                 validation_id=validation_id,
+                user=request.user,
             )
 
             result = importer.import_data()
 
             try:
+
                 log_csv_import(
                     request,
                     result,
                     JournalModules.FAMILLE,
                 )
+
             except Exception:
+
                 pass
 
         except FamilleValidationExpiredError as exc:
@@ -2051,8 +2946,7 @@ class ImportFamilleView(PagePermissionRequiredMixin, APIView):
                 {
                     "success": False,
                     "message": (
-                        "Une erreur inattendue est survenue "
-                        "pendant l'import."
+                        "Une erreur inattendue est survenue " "pendant l'import."
                     ),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -2068,6 +2962,7 @@ class ImportFamilleView(PagePermissionRequiredMixin, APIView):
 
 
 class ValidateCategorieGMView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.categorie_gm"
 
     parser_classes = [MultiPartParser]
@@ -2081,7 +2976,7 @@ class ValidateCategorieGMView(PagePermissionRequiredMixin, APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Aucun fichier reçu.",
+                    "message": "Aucun fichier reÃÂ§u.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -2099,7 +2994,9 @@ class ValidateCategorieGMView(PagePermissionRequiredMixin, APIView):
             )
 
         try:
+
             mapping = json.loads(raw_mapping)
+
         except (json.JSONDecodeError, TypeError):
 
             return Response(
@@ -2146,7 +3043,7 @@ class ValidateCategorieGMView(PagePermissionRequiredMixin, APIView):
 
             validation_id = ValidationCache.save(
                 report=report,
-                filiale='',
+                filiale="",
                 filename=file.name,
             )
 
@@ -2159,6 +3056,7 @@ class ValidateCategorieGMView(PagePermissionRequiredMixin, APIView):
 
 
 class ImportCategorieGMView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.categorie_gm"
 
     parser_classes = [JSONParser]
@@ -2181,17 +3079,21 @@ class ImportCategorieGMView(PagePermissionRequiredMixin, APIView):
 
             importer = CategorieGMCsvImporter(
                 validation_id=validation_id,
+                user=request.user,
             )
 
             result = importer.import_data()
 
             try:
+
                 log_csv_import(
                     request,
                     result,
                     JournalModules.CATEGORIE,
                 )
+
             except Exception:
+
                 pass
 
         except CategorieGMValidationExpiredError as exc:
@@ -2220,8 +3122,7 @@ class ImportCategorieGMView(PagePermissionRequiredMixin, APIView):
                 {
                     "success": False,
                     "message": (
-                        "Une erreur inattendue est survenue "
-                        "pendant l'import."
+                        "Une erreur inattendue est survenue " "pendant l'import."
                     ),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -2237,6 +3138,7 @@ class ImportCategorieGMView(PagePermissionRequiredMixin, APIView):
 
 
 class ValidateSituationAffectationView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.situation_affectation"
 
     parser_classes = [MultiPartParser]
@@ -2244,7 +3146,9 @@ class ValidateSituationAffectationView(PagePermissionRequiredMixin, APIView):
     def post(self, request):
 
         # -----------------------------------------------------
+
         # 1. Uploaded file
+
         # -----------------------------------------------------
 
         file = request.FILES.get("file")
@@ -2254,13 +3158,15 @@ class ValidateSituationAffectationView(PagePermissionRequiredMixin, APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Aucun fichier reçu.",
+                    "message": "Aucun fichier reÃÂ§u.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # -----------------------------------------------------
+
         # 2. Filiale
+
         # -----------------------------------------------------
 
         filiale = request.POST.get("filiale")
@@ -2276,7 +3182,9 @@ class ValidateSituationAffectationView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 3. Column mapping
+
         # -----------------------------------------------------
 
         raw_mapping = request.POST.get("mapping")
@@ -2316,7 +3224,9 @@ class ValidateSituationAffectationView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 4. Validate CSV
+
         # -----------------------------------------------------
 
         try:
@@ -2341,13 +3251,17 @@ class ValidateSituationAffectationView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 5. Build response
+
         # -----------------------------------------------------
 
         response_data = report.to_dict()
 
         # -----------------------------------------------------
+
         # 6. Cache successful validation
+
         # -----------------------------------------------------
 
         if report.success:
@@ -2361,7 +3275,9 @@ class ValidateSituationAffectationView(PagePermissionRequiredMixin, APIView):
             response_data["validation_id"] = validation_id
 
         # -----------------------------------------------------
+
         # 7. Return validation result
+
         # -----------------------------------------------------
 
         return Response(
@@ -2371,6 +3287,7 @@ class ValidateSituationAffectationView(PagePermissionRequiredMixin, APIView):
 
 
 class ImportSituationAffectationView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.situation_affectation"
 
     parser_classes = [JSONParser]
@@ -2378,7 +3295,9 @@ class ImportSituationAffectationView(PagePermissionRequiredMixin, APIView):
     def post(self, request):
 
         # -----------------------------------------------------
+
         # 1. Validation ID
+
         # -----------------------------------------------------
 
         validation_id = request.data.get("validation_id")
@@ -2393,26 +3312,31 @@ class ImportSituationAffectationView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-
         # -----------------------------------------------------
+
         # 3. Import validated rows
+
         # -----------------------------------------------------
 
         try:
 
             importer = SituationAffectationCsvImporter(
                 validation_id=validation_id,
+                user=request.user,
             )
 
             result = importer.import_data()
 
             try:
+
                 log_csv_import(
                     request,
                     result,
                     JournalModules.SITUATION_AFFECTATION,
                 )
+
             except Exception:
+
                 pass
 
         except SituationAffectationValidationExpiredError as exc:
@@ -2441,16 +3365,61 @@ class ImportSituationAffectationView(PagePermissionRequiredMixin, APIView):
                 {
                     "success": False,
                     "message": (
-                        "Une erreur inattendue est survenue "
-                        "pendant l'import."
+                        "Une erreur inattendue est survenue " "pendant l'import."
                     ),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         # -----------------------------------------------------
-        # 3. Successful import
+
+        # Notify admins about pending imports
+
         # -----------------------------------------------------
+
+        try:
+
+            notify_pending_import(
+                request=request,
+                result=result,
+                module_name="Situation Affectation",
+            )
+
+        except Exception as e:
+
+            import logging
+
+            logger = logging.getLogger(__name__)
+
+            logger.error(f"notify_pending_import failed: {e}", exc_info=True)
+
+        # -----------------------------------------------------
+
+        # 3. Successful import
+
+        # -----------------------------------------------------
+
+        # -----------------------------------------------------
+
+        # Notify admins about pending imports
+
+        # -----------------------------------------------------
+
+        try:
+
+            notify_pending_import(
+                request=request,
+                result=result,
+                module_name="Situation Affectation",
+            )
+
+        except Exception as e:
+
+            import logging
+
+            logger = logging.getLogger(__name__)
+
+            logger.error(f"notify_pending_import failed: {e}", exc_info=True)
 
         return Response(
             {
@@ -2462,6 +3431,7 @@ class ImportSituationAffectationView(PagePermissionRequiredMixin, APIView):
 
 
 class ValidateRegularisationGMView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.regularisation"
 
     parser_classes = [MultiPartParser]
@@ -2475,7 +3445,7 @@ class ValidateRegularisationGMView(PagePermissionRequiredMixin, APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Aucun fichier reçu.",
+                    "message": "Aucun fichier reÃÂ§u.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -2483,6 +3453,7 @@ class ValidateRegularisationGMView(PagePermissionRequiredMixin, APIView):
         filiale = request.POST.get("filiale")
 
         if filiale:
+
             filiale = filiale.strip()
 
         raw_mapping = request.POST.get("mapping")
@@ -2498,6 +3469,7 @@ class ValidateRegularisationGMView(PagePermissionRequiredMixin, APIView):
             )
 
         try:
+
             mapping = json.loads(raw_mapping)
 
         except (json.JSONDecodeError, TypeError):
@@ -2521,6 +3493,7 @@ class ValidateRegularisationGMView(PagePermissionRequiredMixin, APIView):
             )
 
         try:
+
             validator = RegularisationGMCsvValidator(
                 uploaded_file=file,
                 schema=REGULARISATION_GM_SCHEMA,
@@ -2559,6 +3532,7 @@ class ValidateRegularisationGMView(PagePermissionRequiredMixin, APIView):
 
 
 class ImportRegularisationGMView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.regularisation"
 
     parser_classes = [JSONParser]
@@ -2578,19 +3552,24 @@ class ImportRegularisationGMView(PagePermissionRequiredMixin, APIView):
             )
 
         try:
+
             importer = RegularisationGMCsvImporter(
                 validation_id=validation_id,
+                user=request.user,
             )
 
             result = importer.import_data()
 
             try:
+
                 log_csv_import(
                     request,
                     result,
                     JournalModules.REGULARISATION,
                 )
+
             except Exception:
+
                 pass
 
         except RegularisationGMValidationExpiredError as exc:
@@ -2613,28 +3592,52 @@ class ImportRegularisationGMView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        except Exception:
-
+        except Exception as exc:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"ImportRegularisationGMView import_data failed: {exc}", exc_info=True)
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Une erreur inattendue est survenue "
-                        "pendant l'import."
-                    ),
+                    "message": "Une erreur inattendue est survenue pendant l'import.",
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        # -----------------------------------------------------
+        # Notify admins about pending imports
+        # -----------------------------------------------------
+
+        try:
+            notify_pending_import(
+                request=request,
+                result=result,
+                module_name="Régularisation GM",
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"notify_pending_import failed: {e}", exc_info=True)
+
+        # Build response data - ensure no model instances
+        response_data = {
+            "success": result.get("success", True),
+            "imported_rows": result.get("imported_rows", 0),
+            "filiale": result.get("filiale"),
+            "filename": result.get("filename"),
+            "validation_summary": result.get("validation_summary"),
+            "import_batch_id": result.get("import_batch_id"),
+            "message": "Import Terminé avec Succès.",
+        }
+
         return Response(
-            {
-                **result,
-                "message": "Import terminé avec succès.",
-            },
+            response_data,
             status=status.HTTP_201_CREATED,
         )
 
+
 class ValidateSiteView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.site"
 
     parser_classes = [MultiPartParser]
@@ -2642,7 +3645,9 @@ class ValidateSiteView(PagePermissionRequiredMixin, APIView):
     def post(self, request):
 
         # -----------------------------------------------------
+
         # 1. Uploaded file
+
         # -----------------------------------------------------
 
         file = request.FILES.get("file")
@@ -2652,13 +3657,15 @@ class ValidateSiteView(PagePermissionRequiredMixin, APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Aucun fichier reçu.",
+                    "message": "Aucun fichier reÃÂ§u.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # -----------------------------------------------------
+
         # 2. Column mapping
+
         # -----------------------------------------------------
 
         raw_mapping = request.POST.get("mapping")
@@ -2698,7 +3705,9 @@ class ValidateSiteView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 3. Validate CSV
+
         # -----------------------------------------------------
 
         try:
@@ -2722,13 +3731,17 @@ class ValidateSiteView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
+
         # 4. Build response
+
         # -----------------------------------------------------
 
         response_data = report.to_dict()
 
         # -----------------------------------------------------
+
         # 5. Cache successful validation
+
         # -----------------------------------------------------
 
         if report.success:
@@ -2742,7 +3755,9 @@ class ValidateSiteView(PagePermissionRequiredMixin, APIView):
             response_data["validation_id"] = validation_id
 
         # -----------------------------------------------------
+
         # 6. Return validation result
+
         # -----------------------------------------------------
 
         return Response(
@@ -2750,7 +3765,9 @@ class ValidateSiteView(PagePermissionRequiredMixin, APIView):
             status=status.HTTP_200_OK,
         )
 
+
 class ImportSiteView(PagePermissionRequiredMixin, APIView):
+
     permission_required = "import.site"
 
     parser_classes = [JSONParser]
@@ -2758,7 +3775,9 @@ class ImportSiteView(PagePermissionRequiredMixin, APIView):
     def post(self, request):
 
         # -----------------------------------------------------
+
         # 1. Validation ID
+
         # -----------------------------------------------------
 
         validation_id = request.data.get("validation_id")
@@ -2774,24 +3793,30 @@ class ImportSiteView(PagePermissionRequiredMixin, APIView):
             )
 
         # -----------------------------------------------------
-        # 2. Import validated rows
+
+# 2. Import validated rows
+
         # -----------------------------------------------------
 
         try:
 
             importer = SiteCsvImporter(
                 validation_id=validation_id,
+                user=request.user,
             )
 
             result = importer.import_data()
 
             try:
+
                 log_csv_import(
                     request,
                     result,
                     JournalModules.SITE,
                 )
+
             except Exception:
+
                 pass
 
         except SiteValidationExpiredError as exc:
@@ -2820,21 +3845,44 @@ class ImportSiteView(PagePermissionRequiredMixin, APIView):
                 {
                     "success": False,
                     "message": (
-                        "Une erreur inattendue est survenue "
-                        "pendant l'import."
+                        "Une erreur inattendue est survenue " "pendant l'import."
                     ),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         # -----------------------------------------------------
+
         # 3. Successful import
+
         # -----------------------------------------------------
+
+        # -----------------------------------------------------
+
+        # Notify admins about pending imports
+
+        # -----------------------------------------------------
+
+        try:
+
+            notify_pending_import(
+                request=request,
+                result=result,
+                module_name="Site",
+            )
+
+        except Exception as e:
+
+            import logging
+
+            logger = logging.getLogger(__name__)
+
+            logger.error(f"notify_pending_import failed: {e}", exc_info=True)
 
         return Response(
             {
                 **result,
-                "message": "Import terminé avec succès.",
+                "message": "Import Terminé avec Succès.",
             },
             status=status.HTTP_201_CREATED,
         )
@@ -2842,26 +3890,63 @@ class ImportSiteView(PagePermissionRequiredMixin, APIView):
 
 class DashboardAPIView(PagePermissionRequiredMixin, APIView):
     """
+
+
+
     GET /api/dashboard/
 
+
+
+
+
+
+
     Query params:
+
+
+
       code_filiale (optional): filter by subsidiary code
+
+
+
       date_debut (optional, YYYY-MM-DD): start of period for pointage/regularisation
+
+
+
       date_fin (optional, YYYY-MM-DD): end of period for pointage/regularisation
+
+
+
       code_famille (optional): filter by material family code
+
+
+
       periode (optional): period label
+
+
+
       mode (optional): 'standard' or 'vs_cible'
+
+
+
     """
 
     permission_required = "analyse.dashboard"
 
     def get(self, request):
+
         code_filiale = request.query_params.get("code_filiale")
+
         date_debut = request.query_params.get("date_debut")
+
         date_fin = request.query_params.get("date_fin")
+
         code_famille = request.query_params.get("code_famille")
+
         periode = request.query_params.get("periode")
+
         mode = request.query_params.get("mode", "standard")
+
         niveau = request.query_params.get("niveau", "engin")
 
         data = DashboardService.get_dashboard(
@@ -2879,18 +3964,43 @@ class DashboardAPIView(PagePermissionRequiredMixin, APIView):
 
 class DashboardV2BaseAPIView(PagePermissionRequiredMixin, APIView):
     """
+
+
+
     Base for the dashboard v2 endpoints.
 
+
+
+
+
+
+
     Shares the `analyse.dashboard` permission with the legacy `DashboardAPIView`
+
+
+
     via `PagePermissionRequiredMixin` (which resolves to
+
+
+
     `[HasPagePermission("analyse.dashboard"), permissions.IsAuthenticated()]`).
+
+
+
     All filters are optional and default to the current month-to-date range and
+
+
+
     the `engin` niveau inside `DashboardV2Service`.
+
+
+
     """
 
     permission_required = ("analyse.dashboard",)
 
     def get_filters(self):
+
         return {
             "code_filiale": self.request.query_params.get("code_filiale"),
             "date_debut": self.request.query_params.get("date_debut"),
@@ -2899,130 +4009,285 @@ class DashboardV2BaseAPIView(PagePermissionRequiredMixin, APIView):
         }
 
     def get_niveau(self):
+
         return self.request.query_params.get("niveau", "engin")
 
 
 class DashboardV2OverviewAPIView(DashboardV2BaseAPIView):
     """
+
+
+
     GET /api/dashboard-v2/overview/
 
+
+
+
+
+
+
     Returns `{ globalKpis, maintenanceKpis, financialKpis }`. The `niveau`
+
+
+
     query param is ignored on purpose (the overview is fleet-scoped).
+
+
+
     """
 
     def get(self, request):
+
         data = DashboardV2Service.get_overview(**self.get_filters())
+
         return Response(data)
 
 
 class DashboardV2SituationAPIView(DashboardV2BaseAPIView):
     """
+
+
+
     GET /api/dashboard-v2/situation/
 
+
+
+
+
+
+
     Returns `{ situationDistribution, pointageEvolution, familleDistribution }`.
+
+
+
     The `niveau` query param is ignored on purpose.
+
+
+
     """
 
     def get(self, request):
+
         data = DashboardV2Service.get_situation(**self.get_filters())
+
         return Response(data)
 
 
 class DashboardV2DisponibiliteAPIView(DashboardV2BaseAPIView):
     """
+
+
+
     GET /api/dashboard-v2/disponibilite/
 
+
+
+
+
+
+
     Query params: code_filiale, date_debut, date_fin, code_famille, niveau.
+
+
+
     Returns `{ evolution, breakdown }`.
+
+
+
     """
 
     def get(self, request):
+
         data = DashboardV2Service.get_disponibilite(
             niveau=self.get_niveau(), **self.get_filters()
         )
+
         return Response(data)
 
 
 class DashboardV2MaintenanceAPIView(DashboardV2BaseAPIView):
     """
+
+
+
     GET /api/dashboard-v2/maintenance/
 
+
+
+
+
+
+
     Query params: code_filiale, date_debut, date_fin, code_famille, niveau.
+
+
+
     Returns `{ mtbf, mttr, coutPanne }`, each `{ evolution, breakdown }`.
+
+
+
     """
 
     def get(self, request):
+
         data = DashboardV2Service.get_maintenance(
             niveau=self.get_niveau(), **self.get_filters()
         )
+
         return Response(data)
 
 
 class DashboardV2RendementAPIView(DashboardV2BaseAPIView):
     """
+
+
+
     GET /api/dashboard-v2/rendement/
 
+
+
+
+
+
+
     Query params: code_filiale, date_debut, date_fin, code_famille, niveau.
+
+
+
     Returns `{ pointageEvolution, rendementEvolution, breakdown }`.
+
+
+
     """
 
     def get(self, request):
+
         data = DashboardV2Service.get_rendement(
             niveau=self.get_niveau(), **self.get_filters()
         )
+
         return Response(data)
 
 
 class DashboardV2FinancesAPIView(DashboardV2BaseAPIView):
     """
+
+
+
     GET /api/dashboard-v2/finances/
 
+
+
+
+
+
+
     Query params: code_filiale, date_debut, date_fin, code_famille, niveau.
+
+
+
     Returns `{ caLocationInterne, rentabilite, tauxAffectation, tauxAffectationGlobal,
+
+
+
     tauxUtilisation, tauxChomage }`.
+
+
+
     """
 
     def get(self, request):
+
         data = DashboardV2Service.get_finances(
             niveau=self.get_niveau(), **self.get_filters()
         )
+
         return Response(data)
 
 
 class DashboardV2FilialesAPIView(DashboardV2BaseAPIView):
     """
+
+
+
     GET /api/dashboard-v2/filiales/
 
+
+
+
+
+
+
     Returns `[{ value, label }]` of the active subsidiaries.
+
+
+
     """
 
     def get(self, request):
+
         return Response(DashboardV2Service.get_filiales())
 
 
 class DashboardV2FamillesAPIView(DashboardV2BaseAPIView):
     """
+
+
+
     GET /api/dashboard-v2/familles/
 
+
+
+
+
+
+
     Returns `[{ value, label }]` of the active material families.
+
+
+
     """
 
     def get(self, request):
+
         return Response(DashboardV2Service.get_familles())
 
 
 class DashboardV2FilialeStatsAPIView(DashboardV2BaseAPIView):
     """
+
+
+
     GET /api/dashboard-v2/filiale-stats/
 
+
+
+
+
+
+
     Returns per-filiale aggregation of parc, affectations, heures service
+
+
+
     and pointages, honoring the optional code_filiale / date / famille filters.
+
+
+
     Grouped on the material's group (`code_materiel__code_filiale_g`); a
+
+
+
     `code_filiale` filter collapses the list to a single row.
+
+
+
     """
 
     def get(self, request):
+
         f = self.get_filters()
+
         return Response(
             DashboardV2Service.get_filiale_stats(
                 code_filiale=f["code_filiale"],
@@ -3034,11 +4299,15 @@ class DashboardV2FilialeStatsAPIView(DashboardV2BaseAPIView):
 
 
 class CurrentUserView(PagePermissionRequiredMixin, APIView):
+
     permission_required = None
 
     def get(self, request):
+
         profile = getattr(request.user, "profile", None)
+
         permissions_list = profile.permissions if profile else []
+
         data = {
             "id": request.user.id,
             "username": request.user.username,
@@ -3049,26 +4318,40 @@ class CurrentUserView(PagePermissionRequiredMixin, APIView):
             "is_superuser": request.user.is_superuser,
             "permissions": permissions_list,
         }
+
         return Response(data)
 
 
 class UserViewSet(SearchableModelViewSet):
+
     queryset = User.objects.all().order_by("username")
+
     serializer_class = UserSerializer
+
     search_fields = ["username", "first_name", "last_name", "email"]
+
     permission_required = "administration.users"
 
     def get_permissions(self):
+
         if self.action in ("me", "preferences", "change_password"):
+
             return [permissions.IsAuthenticated()]
+
         return super().get_permissions()
 
     def perform_create(self, serializer):
+
         password = serializer.validated_data.get("password")
+
         user = serializer.save()
+
         if password:
+
             user.set_password(password)
+
             user.save()
+
         log_action(
             user=self.request.user,
             action=JournalActions.CREATE,
@@ -3077,18 +4360,27 @@ class UserViewSet(SearchableModelViewSet):
             objet_id=user.pk,
             nouvelle_valeur=serialize_for_journal(user, UserSerializer),
             request=self.request,
-            description=f"Création de User",
+            description=f"CrÃÂ©ation de User",
         )
 
     def perform_update(self, serializer):
+
         user = serializer.instance
+
         old_data = serialize_for_journal(user, UserSerializer)
+
         password = serializer.validated_data.get("password")
+
         user = serializer.save()
+
         if password:
+
             user.set_password(password)
+
             user.save()
+
         new_data = serialize_for_journal(user, UserSerializer)
+
         log_action(
             user=self.request.user,
             action=JournalActions.UPDATE,
@@ -3102,8 +4394,11 @@ class UserViewSet(SearchableModelViewSet):
         )
 
     def perform_destroy(self, instance):
+
         old_data = serialize_for_journal(instance, UserSerializer)
+
         super().perform_destroy(instance)
+
         log_action(
             user=self.request.user,
             action=JournalActions.DELETE,
@@ -3117,14 +4412,21 @@ class UserViewSet(SearchableModelViewSet):
 
     @action(detail=True, methods=["get", "patch"], url_path="permissions")
     def permissions(self, request, pk=None):
+
         user = self.get_object()
+
         profile, _ = UserProfile.objects.get_or_create(user=user)
 
         if request.method == "PATCH":
+
             old_permissions = list(profile.permissions) if profile.permissions else []
+
             serializer = UserProfileSerializer(profile, data=request.data, partial=True)
+
             serializer.is_valid(raise_exception=True)
+
             serializer.save()
+
             profile = serializer.instance
 
             log_action(
@@ -3136,15 +4438,18 @@ class UserViewSet(SearchableModelViewSet):
                 ancienne_valeur={"permissions": old_permissions},
                 nouvelle_valeur={"permissions": profile.permissions},
                 request=self.request,
-                description=f"Modification des droits d'accès pour User",
+                description=f"Modification des droits d'accÃÂ¨s pour User",
             )
 
         return Response(UserProfileSerializer(profile).data)
 
     @action(detail=False, methods=["get"], url_path="me")
     def me(self, request):
+
         profile = getattr(request.user, "profile", None)
+
         permissions_list = profile.permissions if profile else []
+
         data = {
             "id": request.user.id,
             "username": request.user.username,
@@ -3155,48 +4460,79 @@ class UserViewSet(SearchableModelViewSet):
             "is_superuser": request.user.is_superuser,
             "permissions": permissions_list,
         }
+
         return Response(data)
 
     @action(detail=False, methods=["get", "patch"], url_path="preferences")
     def preferences(self, request):
+
         profile, _ = UserProfile.objects.get_or_create(user=request.user)
+
         if request.method == "GET":
+
             serializer = UserPreferencesSerializer(profile)
+
             return Response(serializer.data)
+
         serializer = UserPreferencesSerializer(profile, data=request.data, partial=True)
+
         serializer.is_valid(raise_exception=True)
+
         serializer.save()
+
         return Response(serializer.data)
 
     @action(detail=False, methods=["post"], url_path="change_password")
     def change_password(self, request):
+
         user = request.user
+
         current_password = request.data.get("current_password")
+
         new_password = request.data.get("new_password")
+
         if not current_password or not new_password:
+
             return Response(
-                {"detail": "Le mot de passe actuel et le nouveau mot de passe sont obligatoires."},
+                {
+                    "detail": "Le mot de passe actuel et le nouveau mot de passe sont obligatoires."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         if not user.check_password(current_password):
+
             return Response(
                 {"current_password": ["Mot de passe actuel incorrect."]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         if current_password == new_password:
+
             return Response(
-                {"new_password": ["Le nouveau mot de passe doit être différent de l'ancien."]},
+                {
+                    "new_password": [
+                        "Le nouveau mot de passe doit ÃÂªtre diffÃÂ©rent de l'ancien."
+                    ]
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         try:
+
             validate_password(new_password, user=user)
+
         except Exception as exc:
+
             return Response(
                 {"new_password": [str(exc)]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         user.set_password(new_password)
+
         user.save()
+
         log_action(
             user=request.user,
             action=JournalActions.UPDATE,
@@ -3206,19 +4542,31 @@ class UserViewSet(SearchableModelViewSet):
             description=f"Changement de mot de passe pour User",
             request=request,
         )
-        return Response({"detail": "Mot de passe modifié avec succès."})
+
+        return Response(
+            {
+                "detail": "Mot de passe modifiÃÂ© avec succÃÂ¨s."
+            }
+        )
 
     @action(detail=True, methods=["post"], url_path="set_password")
     def set_password(self, request, pk=None):
+
         user = self.get_object()
+
         password = request.data.get("password")
+
         if not password:
+
             return Response(
                 {"message": "Le mot de passe est obligatoire."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         user.set_password(password)
+
         user.save()
+
         log_action(
             user=self.request.user,
             action=JournalActions.UPDATE,
@@ -3228,4 +4576,767 @@ class UserViewSet(SearchableModelViewSet):
             description=f"Changement de mot de passe pour User",
             request=self.request,
         )
-        return Response({"message": "Mot de passe mis à jour."})
+
+        return Response(
+            {
+                "message": "Mot de passe mis ÃÂ  jour."
+            }
+        )
+
+
+def notify_pending_import(request, result, module_name, batch_id=None, count=None):
+
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+
+        logger.info(f"notify_pending_import called: module_name={module_name}, result_keys={list(result.keys()) if isinstance(result, dict) else 'not dict'}")
+
+        if batch_id is None:
+
+            batch_id = (
+                result.get("import_batch_id") if isinstance(result, dict) else None
+            )
+
+        if count is None:
+
+            if isinstance(result, dict):
+
+                count = result.get("imported_rows", 0)
+
+                if count == 0:
+
+                    count = result.get("imported_affectations", 0) + result.get(
+                        "imported_situations", 0
+                    )
+
+            else:
+
+                count = 0
+
+        # Skip notification if no records were imported
+        if count == 0:
+            logger.info(f"notify_pending_import: count=0, skipping notification for {module_name}")
+            return
+
+        logger.info(f"notify_pending_import: batch_id={batch_id}, count={count}")
+
+        admins = User.objects.filter(is_superuser=True).distinct()
+
+        logger.info(f"notify_pending_import: found {admins.count()} superusers")
+
+        title = f"Import en attente: {module_name}"
+
+        message = f"{count} enregistrement(s) importé(s) en attente de confirmation (lot {str(batch_id)[:8] if batch_id else ''})."
+
+        importer = request.user if request.user.is_authenticated else None
+
+        # Build the list of recipients: admins plus the importing user (if not already an admin)
+        recipients = list(admins)
+        if importer and not admins.filter(id=importer.id).exists():
+            recipients.append(importer)
+
+        for a in recipients:
+
+            Notification.objects.create(
+                recipient=a,
+                title=title,
+                message=message,
+                type="PENDING_IMPORT",
+                related_object_type=module_name,
+                related_object_id=str(batch_id) if batch_id else None,
+                created_by=importer,
+            )
+            logger.info(f"notify_pending_import: created notification for {a.username}")
+
+    except Exception as e:
+
+        logger.error(f"notify_pending_import failed: {e}", exc_info=True)
+        pass
+
+
+class PendingListView(PagePermissionRequiredMixin, APIView):
+
+    permission_required = "import.pointage"  # broad; adjust as needed
+
+    def get(self, request):
+
+        from django.contrib.auth import get_user_model
+
+        from django.apps import apps
+
+        from collections import defaultdict
+
+        batch_id = request.query_params.get("batch_id")
+
+        model = request.query_params.get("model")
+
+        # Models that support import batches and status
+
+        model_configs = [
+            ("pointage", Pointage, "gestion.pointages"),
+            ("grand_materiel", Grand_Materiel, "gestion.materiels"),
+            ("affectation_materiel", Affectation_Materiel, "gestion.affectations"),
+            ("situation_materiel", Situation_Materiel, "gestion.situations"),
+            ("site", Site, "gestion.sites"),
+            ("famille_materiel", Famille_Materiel, "gestion.familles_materiel"),
+            (
+                "sous_famille_materiel",
+                Sous_Famille_Materiel,
+                "gestion.sous_familles_materiel",
+            ),
+            ("marque_materiel", Marque_Materiel, "gestion.marques_materiel"),
+            ("type_marque", Type_Marque, "gestion.types_marque"),
+            ("categorie_gm", Categorie_GM, "gestion.categories_gm"),
+            ("regularisation_gm", Regularisation_GM, "gestion.regularisations_gm"),
+        ]
+
+        result = []
+
+        if batch_id:
+
+            # Return details for a specific batch
+
+            for model_key, ModelClass, perm in model_configs:
+
+                if model and model != model_key:
+
+                    continue
+
+                try:
+
+                    qs = ModelClass.objects.filter(
+                        status="PENDING", import_batch_id=batch_id
+                    )
+
+                    items = []
+
+                    for obj in qs[:100]:  # limit preview
+
+                        # Helper to extract string value from field (handle ForeignKey)
+                        def get_field_value(obj, *field_names):
+                            for field_name in field_names:
+                                val = getattr(obj, field_name, None)
+                                if val is not None:
+                                    # If it's a model instance (ForeignKey), get its string representation or pk
+                                    if hasattr(val, '_meta'):  # Django model instance
+                                        return str(val)
+                                    return val
+                            return None
+
+                        items.append(
+                            {
+                                "id": obj.id,
+                                "code": get_field_value(obj, "code", "code_materiel", "code_affectation"),
+                                "designation": get_field_value(obj, "designation", "libelle"),
+                                "created_at": (
+                                    obj.created_at.isoformat()
+                                    if hasattr(obj, "created_at") and obj.created_at
+                                    else None
+                                ),
+                            }
+                        )
+
+                    if qs.exists() or (model and model == model_key):
+
+                        result.append(
+                            {
+                                "model": model_key,
+                                "count": qs.count(),
+                                "items": items,
+                            }
+                        )
+
+                except Exception:
+
+                    continue
+
+            return Response({"batch_id": batch_id, "models": result})
+
+        # Group by batch_id
+
+        batches = defaultdict(
+            lambda: {"models": defaultdict(int), "created_at": None, "module": None}
+        )
+
+        for model_key, ModelClass, perm in model_configs:
+
+            try:
+
+                qs = ModelClass.objects.filter(status="PENDING").exclude(
+                    import_batch_id__isnull=True
+                )
+
+                for obj in (
+                    qs.values("import_batch_id").annotate(c=Count("id")).order_by()
+                ):
+
+                    bid = obj["import_batch_id"]
+
+                    batches[bid]["models"][model_key] += obj["c"]
+
+            except Exception:
+
+                continue
+
+        # Try to get representative created_at and module from notifications
+
+        for bid, data in batches.items():
+
+            try:
+
+                notif = (
+                    Notification.objects.filter(
+                        related_object_id=str(bid), type="PENDING_IMPORT"
+                    )
+                    .order_by("-created_at")
+                    .first()
+                )
+
+                if notif:
+
+                    data["created_at"] = (
+                        notif.created_at.isoformat() if notif.created_at else None
+                    )
+
+                    data["module"] = notif.related_object_type
+
+                    data["title"] = notif.title
+
+            except Exception:
+
+                pass
+
+        batches_list = []
+
+        for bid, data in batches.items():
+
+            batches_list.append(
+                {
+                    "batch_id": bid,
+                    "module": data.get("module"),
+                    "title": data.get("title"),
+                    "created_at": data.get("created_at"),
+                    "models": dict(data["models"]),
+                    "total": sum(data["models"].values()),
+                }
+            )
+
+        batches_list.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+
+        return Response({"batches": batches_list})
+
+
+class ConfirmPendingView(PagePermissionRequiredMixin, APIView):
+
+    permission_required = "import.pointage"
+
+    def post(self, request):
+
+        from django.utils import timezone
+
+        user = request.user
+
+        if not getattr(user, "is_superuser", False):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Non autorisÃÂ©",
+                },
+                status=403,
+            )
+
+        model_name = request.data.get("model")
+
+        ids = request.data.get("ids") or []
+
+        batch_id = request.data.get("batch_id")
+
+        model_map = {
+            "pointage": Pointage,
+            "grand_materiel": Grand_Materiel,
+            "affectation_materiel": Affectation_Materiel,
+            "situation_materiel": Situation_Materiel,
+            "site": Site,
+            "famille_materiel": Famille_Materiel,
+            "sous_famille_materiel": Sous_Famille_Materiel,
+            "marque_materiel": Marque_Materiel,
+            "type_marque": Type_Marque,
+            "categorie_gm": Categorie_GM,
+            "regularisation_gm": Regularisation_GM,
+        }
+
+        if model_name not in model_map:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "ModÃÂ¨le non pris en charge",
+                },
+                status=400,
+            )
+
+        ModelClass = model_map[model_name]
+
+        qs = ModelClass.objects.filter(status="PENDING")
+
+        if ids:
+
+            qs = qs.filter(id__in=ids)
+
+        if batch_id:
+
+            qs = qs.filter(import_batch_id=batch_id)
+
+        updated = qs.update(
+            status="CONFIRMED", confirmed_by=user, confirmed_at=timezone.now()
+        )
+
+        return Response({"success": True, "updated": updated})
+
+
+class BulkConfirmPendingView(PagePermissionRequiredMixin, APIView):
+
+    permission_required = "import.pointage"
+
+    def post(self, request):
+
+        import logging
+        logger = logging.getLogger(__name__)
+
+        from django.utils import timezone
+
+        user = request.user
+
+        if not getattr(user, "is_superuser", False):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Non autorisÃÂ©",
+                },
+                status=403,
+            )
+
+        batch_id = request.data.get("batch_id")
+
+        if not batch_id:
+
+            return Response(
+                {"success": False, "message": "batch_id requis"}, status=400
+            )
+
+        model_map = {
+            "pointage": Pointage,
+            "grand_materiel": Grand_Materiel,
+            "affectation_materiel": Affectation_Materiel,
+            "situation_materiel": Situation_Materiel,
+            "site": Site,
+            "famille_materiel": Famille_Materiel,
+            "sous_famille_materiel": Sous_Famille_Materiel,
+            "marque_materiel": Marque_Materiel,
+            "type_marque": Type_Marque,
+            "categorie_gm": Categorie_GM,
+            "regularisation_gm": Regularisation_GM,
+        }
+
+        total_updated = 0
+
+        errors = []
+
+        for model_name, ModelClass in model_map.items():
+
+            try:
+
+                qs = ModelClass.objects.filter(
+                    status="PENDING", import_batch_id=batch_id
+                )
+
+                count = qs.count()
+
+                if count > 0:
+
+                    # Validate each record before confirming (run model validation)
+
+                    for obj in qs:
+
+                        try:
+
+                            obj.full_clean()
+
+                        except Exception as e:
+
+                            errors.append(f"{model_name} {obj.id}: {str(e)}")
+
+                    if not errors:
+
+                        updated = qs.update(
+                            status="CONFIRMED",
+                            confirmed_by=user,
+                            confirmed_at=timezone.now(),
+                        )
+
+                        total_updated += updated
+
+            except Exception as e:
+
+                errors.append(f"{model_name}: {str(e)}")
+
+        if errors:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Erreurs de validation",
+                    "errors": errors,
+                },
+                status=400,
+            )
+
+        # Update pending notifications for this batch to IMPORT_CONFIRMED
+        if batch_id and total_updated > 0:
+
+            try:
+
+                from .models.notification import Notification as _Notification
+
+                confirm_time = timezone.now()
+
+                _Notification.objects.filter(
+                    type="PENDING_IMPORT",
+                    related_object_id=str(batch_id),
+                ).update(
+                    type="IMPORT_CONFIRMED",
+                    title=f"Import confirmé: lot {str(batch_id)[:8]}",
+                    message=f"{total_updated} enregistrement(s) importé(s) (lot {str(batch_id)[:8] if batch_id else ''}) ont été confirmés par l'administrateur.",
+                    is_read=False,
+                    import_datetime=None,
+                    record_count=total_updated,
+                    rejection_reason=None,
+                    rejection_datetime=None,
+                )
+
+                # Track the confirmation datetime by updating each notification individually
+                confirm_qs = _Notification.objects.filter(
+                    type="IMPORT_CONFIRMED",
+                    related_object_id=str(batch_id),
+                )
+                for notif in confirm_qs:
+                    notif.confirmation_datetime = confirm_time
+                    notif.save(update_fields=["confirmation_datetime"])
+
+            except Exception as e:
+
+                logger.error(f"Failed to update pending notifications to IMPORT_CONFIRMED: {e}", exc_info=True)
+
+        return Response({"success": True, "updated": total_updated})
+
+
+class RejectPendingView(PagePermissionRequiredMixin, APIView):
+
+    permission_required = "import.pointage"
+
+    def post(self, request):
+
+        from django.utils import timezone
+
+        user = request.user
+
+        if not getattr(user, "is_superuser", False):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Non autorisÃÂ©",
+                },
+                status=403,
+            )
+
+        batch_id = request.data.get("batch_id")
+
+        reason = request.data.get("reason", "").strip()
+
+        if not batch_id:
+
+            return Response(
+                {"success": False, "message": "batch_id requis"}, status=400
+            )
+
+        if not reason:
+
+            return Response(
+                {"success": False, "message": "Motif de rejet requis"}, status=400
+            )
+
+        model_map = {
+            "pointage": Pointage,
+            "grand_materiel": Grand_Materiel,
+            "affectation_materiel": Affectation_Materiel,
+            "situation_materiel": Situation_Materiel,
+            "site": Site,
+            "famille_materiel": Famille_Materiel,
+            "sous_famille_materiel": Sous_Famille_Materiel,
+            "marque_materiel": Marque_Materiel,
+            "type_marque": Type_Marque,
+            "categorie_gm": Categorie_GM,
+            "regularisation_gm": Regularisation_GM,
+        }
+
+        total_updated = 0
+
+        importers_notified = {}
+
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+
+        for model_name, ModelClass in model_map.items():
+
+            try:
+
+                qs = ModelClass.objects.filter(
+                    status="PENDING", import_batch_id=batch_id
+                )
+
+                model_count = 0
+                model_import_dates = []
+
+                for obj in qs:
+
+                    obj.status = "REJECTED"
+
+                    obj.rejected_by = user
+
+                    obj.rejected_at = timezone.now()
+
+                    obj.rejection_reason = reason
+
+                    obj.save(
+                        update_fields=[
+                            "status",
+                            "rejected_by",
+                            "rejected_at",
+                            "rejection_reason",
+                        ]
+                    )
+
+                    total_updated += 1
+                    model_count += 1
+
+                    if obj.created_at:
+                        model_import_dates.append(obj.created_at)
+
+                    # Collect importer for notification
+                    if obj.imported_by:
+                        imp_id = obj.imported_by.id
+                        if imp_id not in importers_notified:
+                            importers_notified[imp_id] = {
+                                "models": [],
+                                "total_records": 0,
+                                "import_dates": [],
+                            }
+                        importers_notified[imp_id]["models"].append(model_name)
+                        importers_notified[imp_id]["total_records"] += 1
+                        if obj.created_at:
+                            importers_notified[imp_id]["import_dates"].append(obj.created_at)
+
+                if model_count > 0:
+                    pass  # model processed
+
+            except Exception as e:
+
+                return Response(
+                    {"success": False, "message": f"Erreur sur {model_name}: {str(e)}"},
+                    status=500,
+                )
+
+        # Send notification to importers
+
+        if importers_notified:
+
+            try:
+
+                from .models.notification import Notification
+
+                rejection_time = timezone.now()
+
+                for importer_id, details in importers_notified.items():
+
+                    importer = User.objects.get(id=importer_id)
+
+                    models_str = ", ".join(set(details["models"]))
+                    import_dt_min = min(details["import_dates"]) if details["import_dates"] else None
+                    import_dt_max = max(details["import_dates"]) if details["import_dates"] else None
+                    import_datetime = import_dt_min
+
+                    import_datetime_str = ""
+                    if import_dt_min and import_dt_max:
+                        if import_dt_min == import_dt_max:
+                            import_datetime_str = import_dt_min.strftime("%d/%m/%Y %H:%M")
+                        else:
+                            import_datetime_str = f"{import_dt_min.strftime('%d/%m/%Y %H:%M')} - {import_dt_max.strftime('%d/%m/%Y %H:%M')}"
+
+                    title = f"Import rejeté: lot {batch_id[:8]}"
+                    message_lines = [
+                        f"Votre import (lot {batch_id}) a été rejeté par l'administrateur.",
+                        f"Modèle(s) concerné(s): {models_str}",
+                        f"Nombre d'enregistrements: {details['total_records']}",
+                        f"Date(s) d'import: {import_datetime_str or 'N/A'}",
+                        f"Date de rejet: {rejection_time.strftime('%d/%m/%Y %H:%M')}",
+                        f"Motif: {reason}",
+                    ]
+                    message = "\n".join(message_lines)
+
+                    # Update the importer's existing PENDING_IMPORT notification to IMPORT_REJECTED,
+                    # or create a new one if none found (e.g., legacy data).
+                    updated = Notification.objects.filter(
+                        type="PENDING_IMPORT",
+                        related_object_id=str(batch_id),
+                        recipient=importer,
+                    ).update(
+                        type="IMPORT_REJECTED",
+                        title=title,
+                        message=message,
+                        is_read=False,
+                        related_object_type="batch",
+                        import_model=models_str,
+                        record_count=details['total_records'],
+                        import_datetime=import_datetime,
+                        rejection_datetime=rejection_time,
+                        rejection_reason=reason,
+                    )
+
+                    if not updated:
+
+                        Notification.objects.create(
+                            recipient=importer,
+                            title=title,
+                            message=message,
+                            type="IMPORT_REJECTED",
+                            related_object_type="batch",
+                            related_object_id=batch_id,
+                            created_by=user,
+                            import_model=models_str,
+                            record_count=details['total_records'],
+                            import_datetime=import_datetime,
+                            rejection_datetime=rejection_time,
+                            rejection_reason=reason,
+                        )
+
+            except Exception:
+
+                pass
+
+        return Response(
+            {
+                "success": True,
+                "updated": total_updated,
+                "notified_importers": len(importers_notified),
+            }
+        )
+
+
+class NotificationViewSet(PagePermissionRequiredMixin, viewsets.ModelViewSet):
+
+    serializer_class = NotificationSerializer
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+
+        return Notification.objects.filter(recipient=self.request.user).order_by(
+            "-created_at"
+        )
+
+    @action(detail=True, methods=["patch"])
+    def read(self, request, pk=None):
+
+        notification = self.get_object()
+
+        notification.is_read = True
+
+        notification.save()
+
+        return Response({"success": True})
+
+    @action(detail=False, methods=["post"])
+    def mark_all_read(self, request):
+
+        Notification.objects.filter(recipient=request.user, is_read=False).update(
+            is_read=True
+        )
+
+        return Response({"success": True})
+
+    def destroy(self, request, pk=None):
+        notification = self.get_object()
+        notification.delete()
+        return Response({"success": True})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
