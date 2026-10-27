@@ -1,5 +1,133 @@
 ﻿from rest_framework import permissions
 
+ALL_FILIALES_PERMISSION = "administration.all_filiales"
+
+
+def can_access_all_filiales(user) -> bool:
+    """
+    Return True if the user may query every filiale database.
+
+    Superusers always qualify.  Non-superusers qualify only when their
+    UserProfile carries the ``administration.all_filiales`` permission
+    (stored as ``administration.all_filiales``, ``administration.all_filiales.read``
+    or ``administration.all_filiales.write`` by the frontend permission editor).
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+    if getattr(user, "is_superuser", False):
+        return True
+    profile = getattr(user, "profile", None)
+    if profile is None:
+        return False
+    perms = profile.permissions or []
+    return (
+        ALL_FILIALES_PERMISSION in perms
+        or f"{ALL_FILIALES_PERMISSION}.read" in perms
+        or f"{ALL_FILIALES_PERMISSION}.write" in perms
+    )
+
+
+def can_access_filiale(user, code_filiale) -> bool:
+    """
+    Return True if the user may access the given filiale database.
+
+    - Superusers and users with ``administration.all_filiales`` always pass
+      (as long as the code is a known affiliate).
+    - Otherwise the user must belong to that filiale (profile.filiale).
+    """
+    if not code_filiale:
+        return False
+    if can_access_all_filiales(user):
+        from django.conf import settings
+
+        return code_filiale in settings.FILIALE_DATABASES
+    profile = getattr(user, "profile", None)
+    if profile is None or profile.filiale is None:
+        return False
+    return profile.filiale.code_filiale == code_filiale
+
+
+def resolve_filiale_code(user, request=None):
+    """
+    Return the affiliate code the request must be routed to, or None.
+
+    Resolution order:
+
+    1. An explicit affiliate parameter on the request, but only when the user
+       is allowed to access that affiliate.  Two parameter names are read:
+       ``filiale`` (import endpoints, generic CRUD) and ``code_filiale``
+       (analysis and dashboard endpoints, where it is also used as a data
+       filter).  This is how a user with ``administration.all_filiales``
+       targets a single affiliate database; a request for a forbidden
+       affiliate is ignored (the views answer 403 on their own
+       ``code_filiale`` parameter).
+    2. The affiliate linked to the user's profile (assigned from the
+       "Utilisateurs" page).
+    3. None -> the caller decides (central database fallback).
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return None
+
+    requested = None
+    if request is not None:
+        raw = (
+            request.GET.get("filiale")
+            or request.GET.get("code_filiale")
+            or request.GET.get("libelle_filiale")
+            or request.POST.get("filiale")
+            or request.POST.get("code_filiale")
+            or request.POST.get("libelle_filiale")
+        )
+        if raw:
+            # Frontend searchable dropdowns send "CODE - LABEL"; keep only the code.
+            requested = raw.split(" - ")[0].strip() if " - " in raw else raw.strip()
+    if requested and can_access_filiale(user, requested):
+        return requested
+
+    profile = getattr(user, "profile", None)
+    if profile is not None:
+        filiale = getattr(profile, "filiale", None)
+        if filiale is not None:
+            return filiale.code_filiale
+
+    return None
+
+
+def get_allowed_filiale_codes(user):
+    """
+    Return the list of filiale codes the user may access.
+
+    - Superusers / all_filiales users: every registered filiale code.
+    - Otherwise: just the user's own filiale code (or [] if none).
+    """
+    if can_access_all_filiales(user):
+        from django.conf import settings
+        return list(settings.FILIALE_DATABASES.keys())
+    profile = getattr(user, "profile", None)
+    if profile is None or profile.filiale is None:
+        return []
+    return [profile.filiale.code_filiale]
+
+
+def can_include_pending_data(user) -> bool:
+    """
+    Return True if the user may include pending data in analysis/Journal.
+
+    Admins (superusers) always qualify. Non-admins qualify when they have
+    at least one import permission AND at least one analyse permission.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+    if getattr(user, "is_superuser", False):
+        return True
+    profile = getattr(user, "profile", None)
+    if profile is None:
+        return False
+    perms = profile.permissions or []
+    has_import = any(p == "import" or p.startswith("import.") for p in perms)
+    has_analyse = any(p == "analyse" or p.startswith("analyse.") for p in perms)
+    return has_import and has_analyse
+
 
 class HasPagePermission(permissions.BasePermission):
     def __init__(self, *permission_required: str):

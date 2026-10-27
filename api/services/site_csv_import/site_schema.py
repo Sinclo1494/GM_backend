@@ -147,7 +147,11 @@ SITE_SCHEMA = CsvSchema(
             index=10,
             name="date_ouverture_site",
             required=False,
-            validator=date(),
+            validator=date(
+                "%Y-%m-%d",
+                "%d/%m/%Y",
+                "%d-%m-%Y",
+            ),
         ),
 
         # ---------------------------------------------------------
@@ -157,7 +161,11 @@ SITE_SCHEMA = CsvSchema(
             index=11,
             name="date_cloture_site",
             required=False,
-            validator=date(),
+            validator=date(
+                "%Y-%m-%d",
+                "%d/%m/%Y",
+                "%d-%m-%Y",
+            ),
         ),
 
         # ---------------------------------------------------------

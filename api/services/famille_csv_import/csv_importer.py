@@ -3,6 +3,7 @@
 from api.models import (
     Famille_Materiel,
 )
+from api.multidb import get_filiale_db
 
 from ..validation_cache import ValidationCache
 
@@ -47,6 +48,8 @@ class FamilleCsvImporter:
         summary = payload.get("summary", {})
         filename = payload.get("filename", "")
 
+        filiale_db = get_filiale_db(filiale)
+
         objects = [
             Famille_Materiel(
                 **row,
@@ -70,8 +73,8 @@ class FamilleCsvImporter:
             }
 
         try:
-            with transaction.atomic():
-                Famille_Materiel.objects.bulk_create(
+            with transaction.atomic(using=filiale_db):
+                Famille_Materiel.objects.using(filiale_db).bulk_create(
                     objects,
                     batch_size=BATCH_SIZE,
                 )

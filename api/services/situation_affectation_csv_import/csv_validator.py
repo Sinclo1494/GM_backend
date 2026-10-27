@@ -7,6 +7,7 @@ from api.models import (
     Type_Situation,
     Type_Etat_Materiel,
 )
+from api.multidb import get_filiale_db
 
 from .csv_normalizer import CsvNormalizer
 from .validation import CsvSchema, ValidationReport
@@ -26,6 +27,8 @@ class SituationAffectationCsvValidator:
         self.schema = schema
         self.delimiter = delimiter
         self.encoding = encoding
+
+        self.filiale_db = get_filiale_db(filiale)
 
         self.file = CsvNormalizer.normalize(
             uploaded_file=uploaded_file,
@@ -50,21 +53,21 @@ class SituationAffectationCsvValidator:
     def load_cache(self):
 
         self.materials = set(
-            Grand_Materiel.objects.values_list(
+            Grand_Materiel.objects.using(self.filiale_db).values_list(
                 "code_materiel",
                 flat=True,
             )
         )
 
         self.sites = set(
-            Site.objects.values_list(
+            Site.objects.using(self.filiale_db).values_list(
                 "code_site",
                 flat=True,
             )
         )
 
         self.type_affectations = set(
-            Type_Affectation.objects.values_list(
+            Type_Affectation.objects.using(self.filiale_db).values_list(
                 "code_type_affectation",
                 flat=True,
             )
@@ -72,7 +75,9 @@ class SituationAffectationCsvValidator:
 
         self.type_situations = {}
 
-        for affectation, situation in Type_Situation.objects.values_list(
+        for affectation, situation in Type_Situation.objects.using(
+            self.filiale_db
+        ).values_list(
             "code_type_affectation",
             "code_type_situation",
         ):
@@ -82,7 +87,7 @@ class SituationAffectationCsvValidator:
             ).add(situation)
 
         self.etats = set(
-            Type_Etat_Materiel.objects.values_list(
+            Type_Etat_Materiel.objects.using(self.filiale_db).values_list(
                 "code_type_etat_materiel",
                 flat=True,
             )

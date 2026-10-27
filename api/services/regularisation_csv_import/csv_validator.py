@@ -6,6 +6,7 @@ from api.models import (
     Regularisation_GM,
     Site,
 )
+from api.multidb import get_filiale_db
 
 from .csv_normalizer import CsvNormalizer
 from .validation import CsvSchema, ValidationReport
@@ -27,6 +28,7 @@ class RegularisationGMCsvValidator:
         self.delimiter = delimiter
         self.encoding = encoding
         self.filiale = filiale
+        self.filiale_db = get_filiale_db(filiale)
 
         self.file = CsvNormalizer.normalize(
             uploaded_file=uploaded_file,
@@ -41,14 +43,14 @@ class RegularisationGMCsvValidator:
 
     def load_cache(self):
         self.sites = set(
-            Site.objects.values_list(
+            Site.objects.using(self.filiale_db).values_list(
                 "code_site",
                 flat=True,
             )
         )
 
         self.existing_regularisations = set(
-            Regularisation_GM.objects.values_list(
+            Regularisation_GM.objects.using(self.filiale_db).values_list(
                 "code_site",
                 "mmaa",
             )

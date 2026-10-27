@@ -1,7 +1,10 @@
 import json
 
+import logging
+
 
 from django.shortcuts import render
+from django.db.models import Q
 
 
 from django.http import JsonResponse
@@ -28,6 +31,10 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.filters import OrderingFilter
 
 
+from api.permissions import PagePermissionRequiredMixin, can_access_filiale, get_allowed_filiale_codes, resolve_filiale_code, can_access_all_filiales, can_include_pending_data
+
+
+from django.conf import settings
 from django.db import transaction
 
 
@@ -48,6 +55,13 @@ from django.utils import timezone
 User = get_user_model()
 
 
+# Module level logger: used by the generic error handlers so that no
+# exception is ever swallowed without leaving a trace in the logs.
+# Named "views_logger" because several methods assign a local "logger",
+# which would shadow a module level "logger" for the whole function.
+views_logger = logging.getLogger(__name__)
+
+
 from .services.journal_service import (
     log_action,
     log_csv_import,
@@ -55,7 +69,7 @@ from .services.journal_service import (
 )
 
 
-from .models.journal import JournalActions, JournalModules
+from .models.journal import Journal, JournalActions, JournalModules
 
 
 from .services.pointage_csv_import.pointage_schema import POINTAGE_SCHEMA
@@ -186,196 +200,13 @@ from api.services import (
 
 
 from api.services.dashboard_service import DashboardService
-
-
 from api.services.dashboard_v2_service import DashboardV2Service
 
 
-from .models import Journal
-
-
-from .models import Notification
-
-
-from .models import Grand_Materiel
-
-
-from .models import Marque_Materiel
-
-
-from .models import Type_Marque
-
-
-from .models import Sous_Famille_Materiel
-
-
-from .models import Famille_Materiel
-
-
-from .models import Categorie_GM
-
-
-from .models import Type_Affectation
-
-
-from .models import Type_Situation
-
-
-from .models import Type_Etat_Materiel
-
-
-from .models import Situation_Materiel
-
-
-from .models import Entreprise
-
-
-from .models import Filiale
-
-
-from .models import Affectation_Materiel
-
-
-from .models import Division
-
-
-from .models import Famille_Structures
-
-
-from .models import Pointage
-
-
-from .models import Regularisation_GM
-
-
-from .models import Regularisation_Mois_GM2
-
-
-from .models import Site
-
-
-from .models import UserProfile
-
-
-from .serializers import GrandMaterielSerializer
-
-
-from .serializers import NotificationSerializer
-
-
-from .serializers import MarqueMaterielSerializer
-
-
-from .serializers import TypeMarqueSerializer
-
-
-from .serializers import SousFamilleMaterielSerializer
-
-
-from .serializers import FamilleMaterielSerializer
-
-
-from .serializers import CategorieGMSerializer
-
-
-from .serializers import TypeAffectationSerializer
-
-
-from .serializers import TypeSituationSerializer
-
-
-from .serializers import TypeEtatMaterielSerializer
-
-
-from .serializers import SituationMaterielSerializer
-
-
-from .serializers import EntrepriseSerializer
-
-
-from .serializers import FilialeSerializer
-
-
-from .serializers import AffectationMaterielSerializer
-
-
-from .serializers import DivisionSerializer
-
-
-from .serializers import FamilleStructuresSerializer
-
-
-from .serializers import PointageSerializer
-
-
-from .serializers import RegularisationGMSerializer
-
-
-from .serializers import RegularisationMoisGM2Serializer
-
-
-from .serializers import SiteSerializer
-
-
-from .serializers import JournalSerializer
-
-
-from .serializers import UserSerializer
-
-
-from .serializers import UserProfileSerializer
-
-
-from .serializers import CurrentUserSerializer
-
-
-from .serializers import UserPreferencesSerializer
-
-
-from .permissions import PagePermissionRequiredMixin
-
-
-from .permissions import (
-    PagePermissionRequiredMixin,
-    HasPagePermission,
-    CanModifyEntityWhilePending,
-)
-
-
-from .filters import (
-    AffectationMaterielFilter,
-    SituationMaterielFilter,
-    GrandMaterielFilter,
-    PointageFilter,
-    PointageOrderingFilter,
-    GrandMaterielOrderingFilter,
-    MarqueMaterielFilter,
-    TypeMarqueFilter,
-    CategorieGMFilter,
-    FamilleMaterielFilter,
-    SousFamilleMaterielFilter,
-    TypeAffectationFilter,
-    TypeSituationFilter,
-    TypeEtatMaterielFilter,
-    SiteFilter,
-    RegularisationGMFilter,
-    RegularisationMoisGM2Filter,
-    EntrepriseFilter,
-    FilialeFilter,
-    DivisionFilter,
-    FamilleStructuresFilter,
-)
-
-
-# ---------------------------------------------------------
-
-
-# JournalisedModelViewSet mixin
-
-
-# ---------------------------------------------------------
-
-
+from .filters import GrandMaterielFilter, GrandMaterielOrderingFilter, MarqueMaterielFilter, TypeMarqueFilter, SousFamilleMaterielFilter, FamilleMaterielFilter, CategorieGMFilter, TypeAffectationFilter, TypeSituationFilter, TypeEtatMaterielFilter, SituationMaterielFilter, EntrepriseFilter, FilialeFilter, AffectationMaterielFilter, DivisionFilter, FamilleStructuresFilter, PointageFilter, PointageOrderingFilter, RegularisationGMFilter, RegularisationMoisGM2Filter, SiteFilter
+from . import serializers
+from .serializers import *
+from .multidb import affiliate_routing, filiale_db_name, get_current_filiale, set_current_filiale, clear_current_filiale
 class StandardResultsSetPagination(PageNumberPagination):
 
     page_size = 50
@@ -675,9 +506,86 @@ class JournalViewSet(
 
 class GrandMaterielViewSet(JournalisedModelViewSet):
 
-    queryset = Grand_Materiel.objects.all().select_related(
-        "code_sous_famille_materiel", "code_type_marque", "user_id", "code_filiale_g"
-    )
+    def get_queryset(self):
+        return Grand_Materiel.objects.all().select_related(
+            "code_sous_famille_materiel", "code_type_marque", "user_id", "code_filiale_g"
+        )
+
+    def list(self, request, *args, **kwargs):
+        code_filiale = (
+            request.query_params.get("filiale")
+            or request.query_params.get("code_filiale")
+            or request.query_params.get("libelle_filiale")
+        )
+
+        # Also check libelle_filiale to scope to a specific filiale if possible
+        if not code_filiale and can_access_all_filiales(request.user):
+            libelle_filiale_filter = request.query_params.get("libelle_filiale")
+            if libelle_filiale_filter:
+                from api.models import Filiale
+                try:
+                    f = Filiale.objects.filter(
+                        Q(code_filiale__icontains=libelle_filiale_filter) | Q(libelle_filiale__icontains=libelle_filiale_filter)
+                    ).first()
+                    if f:
+                        code_filiale = f.code_filiale
+                except Exception:
+                    pass
+
+        # If a specific filiale is requested (and user can access it), route to that filiale DB
+        if code_filiale and can_access_filiale(request.user, code_filiale):
+            try:
+                with affiliate_routing(code_filiale):
+                    qs = (
+                        Grand_Materiel.objects.using(filiale_db_name(code_filiale))
+                        .select_related(
+                            "code_sous_famille_materiel",
+                            "code_type_marque",
+                            "user_id",
+                            "code_filiale_g",
+                        )
+                    )
+                    qs = self.filter_queryset(qs)
+                    paginator = self.paginator
+                    page = paginator.paginate_queryset(qs, request, view=self)
+                    if page is not None:
+                        serializer = self.get_serializer(page, many=True)
+                        return self.get_paginated_response(serializer.data)
+                    serializer = self.get_serializer(qs, many=True)
+                    return Response(serializer.data)
+            except Exception:
+                pass
+
+        # Cross-filiale Journal Materiel: a user with administration.all_filiales
+        # who did not target a specific filiale must see materiel from every
+        # filiale database.
+        if can_access_all_filiales(request.user) and not code_filiale:
+            from django.conf import settings
+
+            all_items = []
+            for code in settings.FILIALE_DATABASES:
+                with affiliate_routing(code):
+                    qs = (
+                        Grand_Materiel.objects.using(filiale_db_name(code))
+                        .select_related(
+                            "code_sous_famille_materiel",
+                            "code_type_marque",
+                            "user_id",
+                            "code_filiale_g",
+                        )
+                    )
+                    qs = self.filter_queryset(qs)
+                    all_items.extend(list(qs))
+
+            paginator = self.paginator
+            page = paginator.paginate_queryset(all_items, request, view=self)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+            serializer = self.get_serializer(all_items, many=True)
+            return Response(serializer.data)
+
+        return super().list(request, *args, **kwargs)
 
     serializer_class = GrandMaterielSerializer
 
@@ -713,6 +621,7 @@ class GrandMaterielViewSet(JournalisedModelViewSet):
         "libelle_filiale",
         "libelle_sous_famille",
         "libelle_type_marque",
+        "status",
     ]
 
     ordering = ["code_materiel"]
@@ -927,16 +836,54 @@ class TypeEtatMaterielViewSet(JournalisedModelViewSet):
 
 class SituationMaterielViewSet(JournalisedModelViewSet):
 
-    queryset = Situation_Materiel.objects.all().select_related(
-        "affectation_id",
-        "affectation_id__code_materiel",
-        "affectation_id__code_filiale_mere",
-        "affectation_id__code_site",
-        "type_situation_id",
-        "type_situation_id__code_type_affectation",
-        "code_type_etat_materiel",
-        "user_id",
-    )
+    def get_queryset(self):
+        return Situation_Materiel.objects.all().select_related(
+            "affectation_id",
+            "affectation_id__code_materiel",
+            "affectation_id__code_filiale_mere",
+            "affectation_id__code_site",
+            "type_situation_id",
+            "type_situation_id__code_type_affectation",
+            "code_type_etat_materiel",
+            "user_id",
+        )
+
+    def list(self, request, *args, **kwargs):
+        code_filiale = (
+            request.query_params.get("filiale")
+            or request.query_params.get("code_filiale")
+        )
+        if can_access_all_filiales(request.user) and not code_filiale:
+            from django.conf import settings
+
+            all_items = []
+            for code in settings.FILIALE_DATABASES:
+                with affiliate_routing(code):
+                    qs = (
+                        Situation_Materiel.objects.using(filiale_db_name(code))
+                        .select_related(
+                            "affectation_id",
+                            "affectation_id__code_materiel",
+                            "affectation_id__code_filiale_mere",
+                            "affectation_id__code_site",
+                            "type_situation_id",
+                            "type_situation_id__code_type_affectation",
+                            "code_type_etat_materiel",
+                            "user_id",
+                        )
+                    )
+                    qs = self.filter_queryset(qs)
+                    all_items.extend(list(qs))
+
+            paginator = self.paginator
+            page = paginator.paginate_queryset(all_items, request, view=self)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+            serializer = self.get_serializer(all_items, many=True)
+            return Response(serializer.data)
+
+        return super().list(request, *args, **kwargs)
 
     serializer_class = SituationMaterielSerializer
 
@@ -981,6 +928,8 @@ class EntrepriseViewSet(JournalisedModelViewSet):
 
     journal_objet_type = "Entreprise"
 
+    permission_required = "gestion.entreprises"
+
 
 class FilialeViewSet(JournalisedModelViewSet):
 
@@ -997,15 +946,56 @@ class FilialeViewSet(JournalisedModelViewSet):
     search_fields = ["code_filiale", "libelle_filiale"]
     filter_backends = [FilialeFilter]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        codes = get_allowed_filiale_codes(self.request.user)
+        if codes:
+            qs = qs.filter(code_filiale__in=codes)
+        return qs
+
 
 class AffectationMaterielViewSet(JournalisedModelViewSet):
 
-    queryset = Affectation_Materiel.objects.all().select_related(
-        "code_materiel",
-        "code_filiale_mere",
-        "code_site",
-        "user_id",
-    )
+    def get_queryset(self):
+        return Affectation_Materiel.objects.all().select_related(
+            "code_materiel",
+            "code_filiale_mere",
+            "code_site",
+            "user_id",
+        )
+
+    def list(self, request, *args, **kwargs):
+        code_filiale = (
+            request.query_params.get("filiale")
+            or request.query_params.get("code_filiale")
+        )
+        if can_access_all_filiales(request.user) and not code_filiale:
+            from django.conf import settings
+
+            all_items = []
+            for code in settings.FILIALE_DATABASES:
+                with affiliate_routing(code):
+                    qs = (
+                        Affectation_Materiel.objects.using(filiale_db_name(code))
+                        .select_related(
+                            "code_materiel",
+                            "code_filiale_mere",
+                            "code_site",
+                            "user_id",
+                        )
+                    )
+                    qs = self.filter_queryset(qs)
+                    all_items.extend(list(qs))
+
+            paginator = self.paginator
+            page = paginator.paginate_queryset(all_items, request, view=self)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+            serializer = self.get_serializer(all_items, many=True)
+            return Response(serializer.data)
+
+        return super().list(request, *args, **kwargs)
 
     serializer_class = AffectationMaterielSerializer
 
@@ -1042,13 +1032,48 @@ class AffectationMaterielViewSet(JournalisedModelViewSet):
 
 class PointageViewSet(JournalisedModelViewSet):
 
-    queryset = Pointage.objects.all().select_related(
-        "affectation_id",
-        "affectation_id__code_materiel",
-        "affectation_id__code_site",
-        "affectation_id__code_filiale_mere",
-        "user_id",
-    )
+    def get_queryset(self):
+        return Pointage.objects.all().select_related(
+            "affectation_id",
+            "affectation_id__code_materiel",
+            "affectation_id__code_site",
+            "affectation_id__code_filiale_mere",
+            "user_id",
+        )
+
+    def list(self, request, *args, **kwargs):
+        code_filiale = (
+            request.query_params.get("filiale")
+            or request.query_params.get("code_filiale")
+        )
+        if can_access_all_filiales(request.user) and not code_filiale:
+            from django.conf import settings
+
+            all_items = []
+            for code in settings.FILIALE_DATABASES:
+                with affiliate_routing(code):
+                    qs = (
+                        Pointage.objects.using(filiale_db_name(code))
+                        .select_related(
+                            "affectation_id",
+                            "affectation_id__code_materiel",
+                            "affectation_id__code_site",
+                            "affectation_id__code_filiale_mere",
+                            "user_id",
+                        )
+                    )
+                    qs = self.filter_queryset(qs)
+                    all_items.extend(list(qs))
+
+            paginator = self.paginator
+            page = paginator.paginate_queryset(all_items, request, view=self)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+            serializer = self.get_serializer(all_items, many=True)
+            return Response(serializer.data)
+
+        return super().list(request, *args, **kwargs)
 
     serializer_class = PointageSerializer
 
@@ -1110,7 +1135,36 @@ class PointageViewSet(JournalisedModelViewSet):
 
 class RegularisationGMViewSet(JournalisedModelViewSet):
 
-    queryset = Regularisation_GM.objects.all()
+    def get_queryset(self):
+        return Regularisation_GM.objects.all().select_related("code_site", "user_id")
+
+    def list(self, request, *args, **kwargs):
+        code_filiale = (
+            request.query_params.get("filiale")
+            or request.query_params.get("code_filiale")
+        )
+        if can_access_all_filiales(request.user) and not code_filiale:
+            from django.conf import settings
+
+            all_items = []
+            for code in settings.FILIALE_DATABASES:
+                with affiliate_routing(code):
+                    qs = (
+                        Regularisation_GM.objects.using(filiale_db_name(code))
+                        .select_related("code_site", "user_id")
+                    )
+                    qs = self.filter_queryset(qs)
+                    all_items.extend(list(qs))
+
+            paginator = self.paginator
+            page = paginator.paginate_queryset(all_items, request, view=self)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+            serializer = self.get_serializer(all_items, many=True)
+            return Response(serializer.data)
+
+        return super().list(request, *args, **kwargs)
 
     serializer_class = RegularisationGMSerializer
 
@@ -1120,6 +1174,8 @@ class RegularisationGMViewSet(JournalisedModelViewSet):
 
     journal_site_field = "code_site"
 
+    permission_required = "gestion.regularisations_gm"
+
     search_fields = ["code_regularisation"]
     filter_backends = [RegularisationGMFilter]
 
@@ -1128,7 +1184,8 @@ class RegularisationGMViewSet(JournalisedModelViewSet):
 
 class RegularisationMoisGM2ViewSet(JournalisedModelViewSet):
 
-    queryset = Regularisation_Mois_GM2.objects.all()
+    def get_queryset(self):
+        return Regularisation_Mois_GM2.objects.all()
 
     serializer_class = RegularisationMoisGM2Serializer
 
@@ -1241,15 +1298,64 @@ class TP_AQ_API_View(PagePermissionRequiredMixin, APIView):
 
         date_fin = request.query_params.get("date_fin")
 
-        data = AnalyseQuantitative.get_situations(
-            code_filiale=code_filiale,
-            date_debut=date_debut,
-            date_fin=date_fin,
-            include_pending=(
-                request.query_params.get("include_pending", "false").lower() == "true"
+        include_pending = (
+            request.query_params.get("include_pending", "false").lower() == "true"
+        ) and can_include_pending_data(request.user)
+
+        # Validate that the requested filiale is within the user's scope.
+        if code_filiale and not can_access_filiale(request.user, code_filiale):
+            return Response(
+                {"detail": "Accès refusé à cette filiale."},
+                status=status.HTTP_403_FORBIDDEN,
             )
-            and getattr(request.user, "is_superuser", False),
-        )
+
+        if code_filiale:
+
+            using = filiale_db_name(code_filiale)
+
+            data = AnalyseQuantitative.get_situations(
+                code_filiale=code_filiale,
+                date_debut=date_debut,
+                date_fin=date_fin,
+                include_pending=include_pending,
+                using=using,
+            )
+
+        elif can_access_all_filiales(request.user):
+
+            # Cross-filiale user with no filiale filter: query every filiale DB and merge.
+
+            from django.conf import settings
+
+            all_rows = []
+
+            for code in settings.FILIALE_DATABASES:
+
+                using = filiale_db_name(code)
+
+                rows = AnalyseQuantitative.get_situations(
+                    code_filiale=None,
+                    date_debut=date_debut,
+                    date_fin=date_fin,
+                    include_pending=include_pending,
+                    using=using,
+                )
+
+                all_rows.extend(rows)
+
+            data = all_rows
+
+        else:
+
+            # Filiale user: let the router resolve the DB from thread-local.
+
+            data = AnalyseQuantitative.get_situations(
+                code_filiale=code_filiale,
+                date_debut=date_debut,
+                date_fin=date_fin,
+                include_pending=False,
+                using=None,
+            )
 
         return Response(data)
 
@@ -1268,14 +1374,134 @@ class TP_AQ_resume_API_View(PagePermissionRequiredMixin, APIView):
 
         include_pending = request.query_params.get(
             "include_pending", "false"
-        ).lower() == "true" and getattr(request.user, "is_superuser", False)
+        ).lower() == "true" and can_include_pending_data(request.user)
 
-        data = AnalyseQuantitativeResume.get_situations_resume(
-            code_filiale=code_filiale,
-            date_debut=date_debut,
-            date_fin=date_fin,
-            include_pending=include_pending,
-        )
+        if code_filiale and not can_access_filiale(request.user, code_filiale):
+            return Response(
+                {"detail": "Accès refusé à cette filiale."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if code_filiale:
+
+            using = filiale_db_name(code_filiale)
+
+            data = AnalyseQuantitativeResume.get_situations_resume(
+                code_filiale=code_filiale,
+                date_debut=date_debut,
+                date_fin=date_fin,
+                include_pending=include_pending,
+                using=using,
+            )
+
+        elif can_access_all_filiales(request.user):
+
+            from django.conf import settings
+
+            total = 0
+
+            age_total = 0
+
+            devider = 0
+
+            exp_service = 0
+
+            exp_chomage = 0
+
+            exp_panne = 0
+
+            imm_chomage = 0
+
+            imm_reparation = 0
+
+            imm_autre = 0
+
+            rep_ALREM = 0
+
+            rep_autre = 0
+
+            for code in settings.FILIALE_DATABASES:
+
+                using = filiale_db_name(code)
+
+                row = AnalyseQuantitativeResume.get_situations_resume(
+                    code_filiale=None,
+                    date_debut=date_debut,
+                    date_fin=date_fin,
+                    include_pending=include_pending,
+                    using=using,
+                )
+
+                total += row["nombre_totale"]
+
+                age_total += row["age_moyen"]  # placeholder, recompute below
+
+                exp_service += row["exploitation"]["en_service"]
+
+                exp_chomage += row["exploitation"]["en_chomage"]
+
+                exp_panne += row["exploitation"]["en_panne"]
+
+                imm_chomage += row["immobilises"]["en_chomage"]
+
+                imm_reparation += row["immobilises"]["en_reparation"]
+
+                imm_autre += row["immobilises"]["autre"]
+
+                rep_ALREM += row["reparation_externe"]["ALREM"]
+
+                rep_autre += row["reparation_externe"]["autre"]
+
+            data = {
+
+                "nombre_totale": total,
+
+                "age_moyen": int(age_total / len(settings.FILIALE_DATABASES)) if settings.FILIALE_DATABASES else 0,
+
+                "exploitation": {
+
+                    "en_service": exp_service,
+
+                    "en_chomage": exp_chomage,
+
+                    "en_panne": exp_panne,
+
+                },
+
+                "immobilises": {
+
+                    "en_chomage": imm_chomage,
+
+                    "en_reparation": imm_reparation,
+
+                    "autre": imm_autre,
+
+                },
+
+                "reparation_externe": {
+
+                    "ALREM": rep_ALREM,
+
+                    "autre": rep_autre,
+
+                },
+
+            }
+
+        else:
+
+            data = AnalyseQuantitativeResume.get_situations_resume(
+                code_filiale=code_filiale,
+
+                date_debut=date_debut,
+
+                date_fin=date_fin,
+
+                include_pending=False,
+
+                using=None,
+
+            )
 
         return Response(data)
 
@@ -1294,14 +1520,69 @@ class TP_AE_API_View(PagePermissionRequiredMixin, APIView):
 
         include_pending = request.query_params.get(
             "include_pending", "false"
-        ).lower() == "true" and getattr(request.user, "is_superuser", False)
+        ).lower() == "true" and can_include_pending_data(request.user)
 
-        data = AnalyseExploitation.get_pointages(
-            code_filiale=code_filiale,
-            date_debut=date_debut,
-            date_fin=date_fin,
-            include_pending=include_pending,
-        )
+        if code_filiale and not can_access_filiale(request.user, code_filiale):
+            return Response(
+                {"detail": "Accès refusé à cette filiale."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if code_filiale:
+
+            using = filiale_db_name(code_filiale)
+
+            data = AnalyseExploitation.get_pointages(
+                code_filiale=code_filiale,
+                date_debut=date_debut,
+                date_fin=date_fin,
+                include_pending=include_pending,
+                using=using,
+            )
+
+        elif can_access_all_filiales(request.user):
+
+            from django.conf import settings
+
+            all_rows = []
+
+            for code in settings.FILIALE_DATABASES:
+
+                using = filiale_db_name(code)
+
+                rows = AnalyseExploitation.get_pointages(
+                    code_filiale=None,
+
+                    date_debut=date_debut,
+
+                    date_fin=date_fin,
+
+                    include_pending=include_pending,
+
+                    using=using,
+
+                )
+
+                all_rows.extend(rows)
+
+            all_rows.sort(key=lambda row: (row["code_sous_famille"] or ""))
+
+            data = all_rows
+
+        else:
+
+            data = AnalyseExploitation.get_pointages(
+                code_filiale=code_filiale,
+
+                date_debut=date_debut,
+
+                date_fin=date_fin,
+
+                include_pending=False,
+
+                using=None,
+
+            )
 
         return Response(data)
 
@@ -1320,14 +1601,193 @@ class TP_AE_resume_API_View(PagePermissionRequiredMixin, APIView):
 
         include_pending = request.query_params.get(
             "include_pending", "false"
-        ).lower() == "true" and getattr(request.user, "is_superuser", False)
+        ).lower() == "true" and can_include_pending_data(request.user)
 
-        data = AnalyseExploitationResume.get_pointages_resume(
-            code_filiale=code_filiale,
-            date_debut=date_debut,
-            date_fin=date_fin,
-            include_pending=include_pending,
-        )
+        if code_filiale and not can_access_filiale(request.user, code_filiale):
+            return Response(
+                {"detail": "Accès refusé à cette filiale."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if code_filiale:
+
+            using = filiale_db_name(code_filiale)
+
+            data = AnalyseExploitationResume.get_pointages_resume(
+                code_filiale=code_filiale,
+                date_debut=date_debut,
+                date_fin=date_fin,
+                include_pending=include_pending,
+                using=using,
+            )
+
+        elif can_access_all_filiales(request.user):
+
+            from django.conf import settings
+
+            nombre_existant = 0
+
+            nombre_pointage = 0
+
+            nombre_materiels_pointes = 0
+
+            heures_service = 0
+
+            heures_chomage = 0
+
+            heures_panne = 0
+
+            montant_service = 0
+
+            montant_chomage = 0
+
+            montant_panne = 0
+
+            total_potentiel = 0
+
+            total_potentiel_enregistre = 0
+
+            total_potentiel_calcule = 0
+
+            total_taux = 0
+
+            for code in settings.FILIALE_DATABASES:
+
+                using = filiale_db_name(code)
+
+                row = AnalyseExploitationResume.get_pointages_resume(
+                    code_filiale=None,
+
+                    date_debut=date_debut,
+
+                    date_fin=date_fin,
+
+                    include_pending=include_pending,
+
+                    using=using,
+
+                )
+
+                nombre_existant += row["nombre_existant"]
+
+                nombre_pointage += row["nombre_pointage"]
+
+                nombre_materiels_pointes += row["nombre_materiels_pointes"]
+
+                heures_service += row["heures_service"]
+
+                heures_chomage += row["heures_chomage"]
+
+                heures_panne += row["heures_panne"]
+
+                montant_service += row["montant_service"]
+
+                montant_chomage += row["montant_chomage"]
+
+                montant_panne += row["montant_panne"]
+
+                total_potentiel += row["total_potentiel"]
+
+                total_potentiel_enregistre += row["total_potentiel_enregistre"]
+
+                total_potentiel_calcule += row["total_potentiel_calcule"]
+
+                total_taux += row["taux_location_moyen"] * row["nombre_pointage"]
+
+            total_heures = heures_service + heures_chomage + heures_panne
+
+            total_montants = montant_service + montant_chomage + montant_panne
+
+            data = {
+
+                "nombre_existant": nombre_existant,
+
+                "nombre_pointage": nombre_pointage,
+
+                "nombre_materiels_pointes": nombre_materiels_pointes,
+
+                "heures_service": heures_service,
+
+                "heures_chomage": heures_chomage,
+
+                "heures_panne": heures_panne,
+
+                "montant_service": montant_service,
+
+                "montant_chomage": montant_chomage,
+
+                "montant_panne": montant_panne,
+
+                "potentiel_moyen": (
+
+                    total_potentiel / nombre_pointage if nombre_pointage else 0
+
+                ),
+
+                "total_potentiel": total_potentiel,
+
+                "total_potentiel_enregistre": total_potentiel_enregistre,
+
+                "total_potentiel_calcule": total_potentiel_calcule,
+
+                "taux_location_moyen": (
+
+                    total_taux / nombre_pointage if nombre_pointage else 0
+
+                ),
+
+                "pct_heures_service": (
+
+                    heures_service * 100 / total_heures if total_heures else 0
+
+                ),
+
+                "pct_heures_chomage": (
+
+                    heures_chomage * 100 / total_heures if total_heures else 0
+
+                ),
+
+                "pct_heures_panne": (
+
+                    heures_panne * 100 / total_heures if total_heures else 0
+
+                ),
+
+                "pct_montant_service": (
+
+                    montant_service * 100 / total_montants if total_montants else 0
+
+                ),
+
+                "pct_montant_chomage": (
+
+                    montant_chomage * 100 / total_montants if total_montants else 0
+
+                ),
+
+                "pct_montant_panne": (
+
+                    montant_panne * 100 / total_montants if total_montants else 0
+
+                ),
+
+            }
+
+        else:
+
+            data = AnalyseExploitationResume.get_pointages_resume(
+                code_filiale=code_filiale,
+
+                date_debut=date_debut,
+
+                date_fin=date_fin,
+
+                include_pending=False,
+
+                using=None,
+
+            )
 
         return Response(data)
 
@@ -1393,38 +1853,50 @@ class DashboardMaterialDetailsAPIView(PagePermissionRequiredMixin, APIView):
 
         page_size = int(request.query_params.get("page_size", 50))
 
-        qs = Grand_Materiel.objects.filter(est_bloque=False).select_related(
-            "code_sous_famille_materiel",
-            "code_sous_famille_materiel__code_famille_materiel",
-            "code_type_marque",
-            "code_filiale_g",
-        )
+        from django.conf import settings
+        from django.db import models as _m
 
-        if code_filiale:
-
-            qs = qs.filter(code_filiale_g=code_filiale)
-
-        if code_famille:
-
-            qs = qs.filter(
-                code_sous_famille_materiel__code_famille_materiel__code_famille=code_famille
+        def _build_qs(using=None):
+            base = Grand_Materiel.objects
+            if using is not None:
+                base = base.using(using)
+            q = base.filter(est_bloque=False).select_related(
+                "code_sous_famille_materiel",
+                "code_sous_famille_materiel__code_famille_materiel",
+                "code_type_marque",
+                "code_filiale_g",
             )
+            if code_filiale:
+                q = q.filter(code_filiale_g=code_filiale)
+            if code_famille:
+                q = q.filter(
+                    code_sous_famille_materiel__code_famille_materiel__code_famille=code_famille
+                )
+            if search:
+                q = q.filter(
+                    Q(code_materiel__icontains=search)
+                    | Q(designation__icontains=search)
+                    | Q(code_type_marque__code_type_marque__icontains=search)
+                )
+            return q
 
-        if search:
-
-            qs = qs.filter(
-                Q(code_materiel__icontains=search)
-                | Q(designation__icontains=search)
-                | Q(code_type_marque__code_type_marque__icontains=search)
-            )
-
-        total = qs.count()
-
-        start = (page - 1) * page_size
-
-        end = start + page_size
-
-        items = qs[start:end]
+        from api.permissions import can_access_all_filiales
+        if can_access_all_filiales(request.user) and not code_filiale:
+            all_items = []
+            for code in settings.FILIALE_DATABASES:
+                using = f"filiale_{code}"
+                qs_db = _build_qs(using=using)
+                all_items.extend(list(qs_db))
+            total = len(all_items)
+            start = (page - 1) * page_size
+            end = start + page_size
+            items = all_items[start:end]
+        else:
+            qs = _build_qs()
+            total = qs.count()
+            start = (page - 1) * page_size
+            end = start + page_size
+            items = qs[start:end]
 
         result = []
 
@@ -1521,6 +1993,16 @@ class ValidatePointageView(PagePermissionRequiredMixin, APIView):
             )
 
         filiale = filiale.strip()
+
+        if filiale and not can_access_filiale(request.user, filiale):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         # -----------------------------------------------------
 
@@ -1649,6 +2131,28 @@ class ImportPointageView(PagePermissionRequiredMixin, APIView):
                         "message": "L'identifiant de validation est obligatoire.",
                     },
                     status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # The import writes into the affiliate recorded at validation
+
+            # time: the user must be allowed to write into it.
+
+            _validation_payload = ValidationCache.get(validation_id)
+
+            _import_filiale = (_validation_payload or {}).get("filiale")
+
+            if _import_filiale and not can_access_filiale(
+
+                request.user, _import_filiale
+
+            ):
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Accès refusé à cette filiale.",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
                 )
 
             # -----------------------------------------------------
@@ -1799,6 +2303,16 @@ class ValidateGrandMaterielView(PagePermissionRequiredMixin, APIView):
 
             filiale = filiale.strip()
 
+        if filiale and not can_access_filiale(request.user, filiale):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         # -----------------------------------------------------
 
         # 3. Column mapping
@@ -1930,6 +2444,28 @@ class ImportGrandMaterielView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # The import writes into the affiliate recorded at validation
+
+        # time: the user must be allowed to write into it.
+
+        _validation_payload = ValidationCache.get(validation_id)
+
+        _import_filiale = (_validation_payload or {}).get("filiale")
+
+        if _import_filiale and not can_access_filiale(
+
+            request.user, _import_filiale
+
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         # -----------------------------------------------------
 
         # 2. Import validated rows
@@ -1977,7 +2513,12 @@ class ImportGrandMaterielView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        except Exception:
+        except Exception as exc:
+
+            views_logger.error(
+                f"{self.__class__.__name__} import failed: {exc}",
+                exc_info=True,
+            )
 
             return Response(
                 {
@@ -2054,7 +2595,37 @@ class ValidateMarqueView(PagePermissionRequiredMixin, APIView):
 
         # -----------------------------------------------------
 
-        # 2. Column mapping
+        # 2. Selected filiale
+
+        # -----------------------------------------------------
+
+        filiale = request.POST.get("filiale")
+
+        if not filiale or not filiale.strip():
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "La filiale est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filiale = filiale.strip()
+
+        if filiale and not can_access_filiale(request.user, filiale):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # -----------------------------------------------------
+
+        # 3. Column mapping
 
         # -----------------------------------------------------
 
@@ -2106,6 +2677,7 @@ class ValidateMarqueView(PagePermissionRequiredMixin, APIView):
                 uploaded_file=file,
                 schema=MARQUE_MATERIEL_SCHEMA,
                 mapping=mapping,
+                filiale=filiale,
             )
 
             report = validator.validate()
@@ -2138,7 +2710,7 @@ class ValidateMarqueView(PagePermissionRequiredMixin, APIView):
 
             validation_id = ValidationCache.save(
                 report=report,
-                filiale="",
+                filiale=filiale,
                 filename=file.name,
             )
 
@@ -2180,6 +2752,28 @@ class ImportMarqueView(PagePermissionRequiredMixin, APIView):
                     "message": "L'identifiant de validation est obligatoire.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # The import writes into the affiliate recorded at validation
+
+        # time: the user must be allowed to write into it.
+
+        _validation_payload = ValidationCache.get(validation_id)
+
+        _import_filiale = (_validation_payload or {}).get("filiale")
+
+        if _import_filiale and not can_access_filiale(
+
+            request.user, _import_filiale
+
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         # -----------------------------------------------------
@@ -2228,7 +2822,12 @@ class ImportMarqueView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        except Exception:
+        except Exception as exc:
+
+            views_logger.error(
+                f"{self.__class__.__name__} import failed: {exc}",
+                exc_info=True,
+            )
 
             return Response(
                 {
@@ -2307,7 +2906,37 @@ class ValidateTypeMarqueView(PagePermissionRequiredMixin, APIView):
 
         # -----------------------------------------------------
 
-        # 2. Column mapping
+        # 2. Selected filiale
+
+        # -----------------------------------------------------
+
+        filiale = request.POST.get("filiale")
+
+        if not filiale or not filiale.strip():
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "La filiale est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filiale = filiale.strip()
+
+        if filiale and not can_access_filiale(request.user, filiale):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # -----------------------------------------------------
+
+        # 3. Column mapping
 
         # -----------------------------------------------------
 
@@ -2359,6 +2988,7 @@ class ValidateTypeMarqueView(PagePermissionRequiredMixin, APIView):
                 uploaded_file=file,
                 schema=TYPE_MARQUE_SCHEMA,
                 mapping=mapping,
+                filiale=filiale,
             )
 
             report = validator.validate()
@@ -2391,7 +3021,7 @@ class ValidateTypeMarqueView(PagePermissionRequiredMixin, APIView):
 
             validation_id = ValidationCache.save(
                 report=report,
-                filiale="",
+                filiale=filiale,
                 filename=file.name,
             )
 
@@ -2433,6 +3063,28 @@ class ImportTypeMarqueView(PagePermissionRequiredMixin, APIView):
                     "message": "L'identifiant de validation est obligatoire.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # The import writes into the affiliate recorded at validation
+
+        # time: the user must be allowed to write into it.
+
+        _validation_payload = ValidationCache.get(validation_id)
+
+        _import_filiale = (_validation_payload or {}).get("filiale")
+
+        if _import_filiale and not can_access_filiale(
+
+            request.user, _import_filiale
+
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         # -----------------------------------------------------
@@ -2482,7 +3134,12 @@ class ImportTypeMarqueView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        except Exception:
+        except Exception as exc:
+
+            views_logger.error(
+                f"{self.__class__.__name__} import failed: {exc}",
+                exc_info=True,
+            )
 
             return Response(
                 {
@@ -2561,7 +3218,37 @@ class ValidateSousFamilleView(PagePermissionRequiredMixin, APIView):
 
         # -----------------------------------------------------
 
-        # 2. Column mapping
+        # 2. Selected filiale
+
+        # -----------------------------------------------------
+
+        filiale = request.POST.get("filiale")
+
+        if not filiale or not filiale.strip():
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "La filiale est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filiale = filiale.strip()
+
+        if filiale and not can_access_filiale(request.user, filiale):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # -----------------------------------------------------
+
+        # 3. Column mapping
 
         # -----------------------------------------------------
 
@@ -2613,6 +3300,7 @@ class ValidateSousFamilleView(PagePermissionRequiredMixin, APIView):
                 uploaded_file=file,
                 schema=SOUS_FAMILLE_SCHEMA,
                 mapping=mapping,
+                filiale=filiale,
             )
 
             report = validator.validate()
@@ -2645,7 +3333,7 @@ class ValidateSousFamilleView(PagePermissionRequiredMixin, APIView):
 
             validation_id = ValidationCache.save(
                 report=report,
-                filiale="",
+                filiale=filiale,
                 filename=file.name,
             )
 
@@ -2687,6 +3375,28 @@ class ImportSousFamilleView(PagePermissionRequiredMixin, APIView):
                     "message": "L'identifiant de validation est obligatoire.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # The import writes into the affiliate recorded at validation
+
+        # time: the user must be allowed to write into it.
+
+        _validation_payload = ValidationCache.get(validation_id)
+
+        _import_filiale = (_validation_payload or {}).get("filiale")
+
+        if _import_filiale and not can_access_filiale(
+
+            request.user, _import_filiale
+
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         # -----------------------------------------------------
@@ -2736,7 +3446,12 @@ class ImportSousFamilleView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        except Exception:
+        except Exception as exc:
+
+            views_logger.error(
+                f"{self.__class__.__name__} import failed: {exc}",
+                exc_info=True,
+            )
 
             return Response(
                 {
@@ -2805,6 +3520,36 @@ class ValidateFamilleView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # -----------------------------------------------------
+
+        # 2. Selected filiale
+
+        # -----------------------------------------------------
+
+        filiale = request.POST.get("filiale")
+
+        if not filiale or not filiale.strip():
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "La filiale est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filiale = filiale.strip()
+
+        if filiale and not can_access_filiale(request.user, filiale):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         raw_mapping = request.POST.get("mapping")
 
         if not raw_mapping:
@@ -2847,6 +3592,7 @@ class ValidateFamilleView(PagePermissionRequiredMixin, APIView):
                 uploaded_file=file,
                 schema=FAMILLE_SCHEMA,
                 mapping=mapping,
+                filiale=filiale,
             )
 
             report = validator.validate()
@@ -2867,7 +3613,7 @@ class ValidateFamilleView(PagePermissionRequiredMixin, APIView):
 
             validation_id = ValidationCache.save(
                 report=report,
-                filiale="",
+                filiale=filiale,
                 filename=file.name,
             )
 
@@ -2897,6 +3643,28 @@ class ImportFamilleView(PagePermissionRequiredMixin, APIView):
                     "message": "L'identifiant de validation est obligatoire.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # The import writes into the affiliate recorded at validation
+
+        # time: the user must be allowed to write into it.
+
+        _validation_payload = ValidationCache.get(validation_id)
+
+        _import_filiale = (_validation_payload or {}).get("filiale")
+
+        if _import_filiale and not can_access_filiale(
+
+            request.user, _import_filiale
+
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         try:
@@ -2940,7 +3708,12 @@ class ImportFamilleView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        except Exception:
+        except Exception as exc:
+
+            views_logger.error(
+                f"{self.__class__.__name__} import failed: {exc}",
+                exc_info=True,
+            )
 
             return Response(
                 {
@@ -2979,6 +3752,36 @@ class ValidateCategorieGMView(PagePermissionRequiredMixin, APIView):
                     "message": "Aucun fichier reÃÂ§u.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -----------------------------------------------------
+
+        # 2. Selected filiale
+
+        # -----------------------------------------------------
+
+        filiale = request.POST.get("filiale")
+
+        if not filiale or not filiale.strip():
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "La filiale est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filiale = filiale.strip()
+
+        if filiale and not can_access_filiale(request.user, filiale):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         raw_mapping = request.POST.get("mapping")
@@ -3023,6 +3826,7 @@ class ValidateCategorieGMView(PagePermissionRequiredMixin, APIView):
                 uploaded_file=file,
                 schema=CATEGORIE_GM_SCHEMA,
                 mapping=mapping,
+                filiale=filiale,
             )
 
             report = validator.validate()
@@ -3043,7 +3847,7 @@ class ValidateCategorieGMView(PagePermissionRequiredMixin, APIView):
 
             validation_id = ValidationCache.save(
                 report=report,
-                filiale="",
+                filiale=filiale,
                 filename=file.name,
             )
 
@@ -3073,6 +3877,28 @@ class ImportCategorieGMView(PagePermissionRequiredMixin, APIView):
                     "message": "L'identifiant de validation est obligatoire.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # The import writes into the affiliate recorded at validation
+
+        # time: the user must be allowed to write into it.
+
+        _validation_payload = ValidationCache.get(validation_id)
+
+        _import_filiale = (_validation_payload or {}).get("filiale")
+
+        if _import_filiale and not can_access_filiale(
+
+            request.user, _import_filiale
+
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         try:
@@ -3116,7 +3942,12 @@ class ImportCategorieGMView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        except Exception:
+        except Exception as exc:
+
+            views_logger.error(
+                f"{self.__class__.__name__} import failed: {exc}",
+                exc_info=True,
+            )
 
             return Response(
                 {
@@ -3179,6 +4010,16 @@ class ValidateSituationAffectationView(PagePermissionRequiredMixin, APIView):
                     "message": "La filiale est obligatoire.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if filiale and not can_access_filiale(request.user, filiale):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         # -----------------------------------------------------
@@ -3312,6 +4153,28 @@ class ImportSituationAffectationView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # The import writes into the affiliate recorded at validation
+
+        # time: the user must be allowed to write into it.
+
+        _validation_payload = ValidationCache.get(validation_id)
+
+        _import_filiale = (_validation_payload or {}).get("filiale")
+
+        if _import_filiale and not can_access_filiale(
+
+            request.user, _import_filiale
+
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         # -----------------------------------------------------
 
         # 3. Import validated rows
@@ -3359,7 +4222,12 @@ class ImportSituationAffectationView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        except Exception:
+        except Exception as exc:
+
+            views_logger.error(
+                f"{self.__class__.__name__} import failed: {exc}",
+                exc_info=True,
+            )
 
             return Response(
                 {
@@ -3450,11 +4318,41 @@ class ValidateRegularisationGMView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # -----------------------------------------------------
+
+        # 2. Selected filiale
+
+        # -----------------------------------------------------
+
         filiale = request.POST.get("filiale")
 
-        if filiale:
+        if not filiale or not filiale.strip():
 
-            filiale = filiale.strip()
+            return Response(
+                {
+                    "success": False,
+                    "message": "La filiale est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filiale = filiale.strip()
+
+        if filiale and not can_access_filiale(request.user, filiale):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # -----------------------------------------------------
+
+        # 3. Column mapping
+
+        # -----------------------------------------------------
 
         raw_mapping = request.POST.get("mapping")
 
@@ -3549,6 +4447,28 @@ class ImportRegularisationGMView(PagePermissionRequiredMixin, APIView):
                     "message": "L'identifiant de validation est obligatoire.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # The import writes into the affiliate recorded at validation
+
+        # time: the user must be allowed to write into it.
+
+        _validation_payload = ValidationCache.get(validation_id)
+
+        _import_filiale = (_validation_payload or {}).get("filiale")
+
+        if _import_filiale and not can_access_filiale(
+
+            request.user, _import_filiale
+
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         try:
@@ -3664,7 +4584,37 @@ class ValidateSiteView(PagePermissionRequiredMixin, APIView):
 
         # -----------------------------------------------------
 
-        # 2. Column mapping
+        # 2. Selected filiale
+
+        # -----------------------------------------------------
+
+        filiale = request.POST.get("filiale")
+
+        if not filiale or not filiale.strip():
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "La filiale est obligatoire.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filiale = filiale.strip()
+
+        if filiale and not can_access_filiale(request.user, filiale):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # -----------------------------------------------------
+
+        # 3. Column mapping
 
         # -----------------------------------------------------
 
@@ -3716,6 +4666,7 @@ class ValidateSiteView(PagePermissionRequiredMixin, APIView):
                 uploaded_file=file,
                 schema=SITE_SCHEMA,
                 mapping=mapping,
+                filiale=filiale,
             )
 
             report = validator.validate()
@@ -3748,7 +4699,7 @@ class ValidateSiteView(PagePermissionRequiredMixin, APIView):
 
             validation_id = ValidationCache.save(
                 report=report,
-                filiale="",
+                filiale=filiale,
                 filename=file.name,
             )
 
@@ -3790,6 +4741,28 @@ class ImportSiteView(PagePermissionRequiredMixin, APIView):
                     "message": "L'identifiant de validation est obligatoire.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # The import writes into the affiliate recorded at validation
+
+        # time: the user must be allowed to write into it.
+
+        _validation_payload = ValidationCache.get(validation_id)
+
+        _import_filiale = (_validation_payload or {}).get("filiale")
+
+        if _import_filiale and not can_access_filiale(
+
+            request.user, _import_filiale
+
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Accès refusé à cette filiale.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         # -----------------------------------------------------
@@ -3839,7 +4812,12 @@ class ImportSiteView(PagePermissionRequiredMixin, APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        except Exception:
+        except Exception as exc:
+
+            views_logger.error(
+                f"{self.__class__.__name__} import failed: {exc}",
+                exc_info=True,
+            )
 
             return Response(
                 {
@@ -3963,44 +4941,9 @@ class DashboardAPIView(PagePermissionRequiredMixin, APIView):
 
 
 class DashboardV2BaseAPIView(PagePermissionRequiredMixin, APIView):
-    """
-
-
-
-    Base for the dashboard v2 endpoints.
-
-
-
-
-
-
-
-    Shares the `analyse.dashboard` permission with the legacy `DashboardAPIView`
-
-
-
-    via `PagePermissionRequiredMixin` (which resolves to
-
-
-
-    `[HasPagePermission("analyse.dashboard"), permissions.IsAuthenticated()]`).
-
-
-
-    All filters are optional and default to the current month-to-date range and
-
-
-
-    the `engin` niveau inside `DashboardV2Service`.
-
-
-
-    """
-
     permission_required = ("analyse.dashboard",)
 
     def get_filters(self):
-
         return {
             "code_filiale": self.request.query_params.get("code_filiale"),
             "date_debut": self.request.query_params.get("date_debut"),
@@ -4009,8 +4952,15 @@ class DashboardV2BaseAPIView(PagePermissionRequiredMixin, APIView):
         }
 
     def get_niveau(self):
-
         return self.request.query_params.get("niveau", "engin")
+
+    def get_db_aliases(self):
+        code_filiale = self.request.query_params.get("code_filiale")
+        if code_filiale:
+            return [filiale_db_name(code_filiale)]
+        if can_access_all_filiales(self.request.user):
+            return [filiale_db_name(code) for code in settings.FILIALE_DATABASES]
+        return [None]
 
 
 class DashboardV2OverviewAPIView(DashboardV2BaseAPIView):
@@ -4038,7 +4988,48 @@ class DashboardV2OverviewAPIView(DashboardV2BaseAPIView):
 
     def get(self, request):
 
-        data = DashboardV2Service.get_overview(**self.get_filters())
+        f = self.get_filters()
+        aliases = self.get_db_aliases()
+        if len(aliases) == 1:
+            data = DashboardV2Service.get_overview(
+                code_filiale=f["code_filiale"],
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+                using=aliases[0],
+            )
+            return Response(data)
+
+        # Cross-filiale merge: query every affiliate database and merge the
+        # per-filiale results in Python. The FailClosedDatabaseRouter has no
+        # filiale to route to when ``code_filiale`` is None and the user is an
+        # admin, so without this loop every query falls back to the central
+        # ``default`` database — which has empty affiliate-scoped tables.
+        global_kpis_list = []
+        maintenance_kpis_list = []
+        financial_kpis_list = []
+        filiale_distribution_list = []
+        for alias in aliases:
+            overview = DashboardV2Service.get_overview(
+                code_filiale=None,
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+                using=alias,
+            )
+            global_kpis_list.append(overview["globalKpis"])
+            maintenance_kpis_list.append(overview["maintenanceKpis"])
+            financial_kpis_list.append(overview["financialKpis"])
+            filiale_distribution_list.append(overview["filialeDistribution"])
+
+        data = {
+            "globalKpis": DashboardV2Service._merge_global_kpis(global_kpis_list),
+            "maintenanceKpis": DashboardV2Service._merge_maintenance_kpis(maintenance_kpis_list),
+            "financialKpis": DashboardV2Service._merge_financial_kpis(financial_kpis_list),
+            "filialeDistribution": DashboardV2Service._merge_filiale_distribution(
+                filiale_distribution_list
+            ),
+        }
 
         return Response(data)
 
@@ -4068,7 +5059,44 @@ class DashboardV2SituationAPIView(DashboardV2BaseAPIView):
 
     def get(self, request):
 
-        data = DashboardV2Service.get_situation(**self.get_filters())
+        f = self.get_filters()
+        aliases = self.get_db_aliases()
+        if len(aliases) == 1:
+            data = DashboardV2Service.get_situation(
+                code_filiale=f["code_filiale"],
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+                using=aliases[0],
+            )
+            return Response(data)
+
+        # Cross-filiale merge: query every affiliate database and merge the
+        # per-filiale results in Python.
+        situation_distributions = []
+        pointage_evolutions = []
+        famille_distributions = []
+        for alias in aliases:
+            situation = DashboardV2Service.get_situation(
+                code_filiale=None,
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+                using=alias,
+            )
+            situation_distributions.append(situation["situationDistribution"])
+            pointage_evolutions.append(situation["pointageEvolution"])
+            famille_distributions.append(situation["familleDistribution"])
+
+        data = {
+            "situationDistribution": DashboardV2Service._merge_situation_distribution(
+                situation_distributions
+            ),
+            "pointageEvolution": DashboardV2Service._merge_evolution(pointage_evolutions),
+            "familleDistribution": DashboardV2Service._merge_famille_distribution(
+                famille_distributions
+            ),
+        }
 
         return Response(data)
 
@@ -4098,9 +5126,39 @@ class DashboardV2DisponibiliteAPIView(DashboardV2BaseAPIView):
 
     def get(self, request):
 
-        data = DashboardV2Service.get_disponibilite(
-            niveau=self.get_niveau(), **self.get_filters()
-        )
+        f = self.get_filters()
+        aliases = self.get_db_aliases()
+        if len(aliases) == 1:
+            data = DashboardV2Service.get_disponibilite(
+                code_filiale=f["code_filiale"],
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+                niveau=self.get_niveau(),
+                using=aliases[0],
+            )
+            return Response(data)
+
+        # Cross-filiale merge: query every affiliate database and merge the
+        # per-filiale results in Python.
+        evolutions = []
+        breakdowns = []
+        for alias in aliases:
+            result = DashboardV2Service.get_disponibilite(
+                code_filiale=None,
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+                niveau=self.get_niveau(),
+                using=alias,
+            )
+            evolutions.append(result["evolution"])
+            breakdowns.append(result["breakdown"])
+
+        data = {
+            "evolution": DashboardV2Service._merge_evolution(evolutions),
+            "breakdown": DashboardV2Service._merge_breakdown(breakdowns),
+        }
 
         return Response(data)
 
@@ -4130,9 +5188,57 @@ class DashboardV2MaintenanceAPIView(DashboardV2BaseAPIView):
 
     def get(self, request):
 
-        data = DashboardV2Service.get_maintenance(
-            niveau=self.get_niveau(), **self.get_filters()
-        )
+        f = self.get_filters()
+        aliases = self.get_db_aliases()
+        if len(aliases) == 1:
+            data = DashboardV2Service.get_maintenance(
+                code_filiale=f["code_filiale"],
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+                niveau=self.get_niveau(),
+                using=aliases[0],
+            )
+            return Response(data)
+
+        # Cross-filiale merge: query every affiliate database and merge the
+        # per-filiale results in Python.
+        mtbf_evolutions = []
+        mtbf_breakdowns = []
+        mttr_evolutions = []
+        mttr_breakdowns = []
+        cout_panne_evolutions = []
+        cout_panne_breakdowns = []
+        for alias in aliases:
+            result = DashboardV2Service.get_maintenance(
+                code_filiale=None,
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+                niveau=self.get_niveau(),
+                using=alias,
+            )
+            mtbf_evolutions.append(result["mtbf"]["evolution"])
+            mtbf_breakdowns.append(result["mtbf"]["breakdown"])
+            mttr_evolutions.append(result["mttr"]["evolution"])
+            mttr_breakdowns.append(result["mttr"]["breakdown"])
+            cout_panne_evolutions.append(result["coutPanne"]["evolution"])
+            cout_panne_breakdowns.append(result["coutPanne"]["breakdown"])
+
+        data = {
+            "mtbf": {
+                "evolution": DashboardV2Service._merge_evolution(mtbf_evolutions),
+                "breakdown": DashboardV2Service._merge_breakdown(mtbf_breakdowns),
+            },
+            "mttr": {
+                "evolution": DashboardV2Service._merge_evolution(mttr_evolutions),
+                "breakdown": DashboardV2Service._merge_breakdown(mttr_breakdowns),
+            },
+            "coutPanne": {
+                "evolution": DashboardV2Service._merge_evolution(cout_panne_evolutions),
+                "breakdown": DashboardV2Service._merge_breakdown(cout_panne_breakdowns),
+            },
+        }
 
         return Response(data)
 
@@ -4162,9 +5268,42 @@ class DashboardV2RendementAPIView(DashboardV2BaseAPIView):
 
     def get(self, request):
 
-        data = DashboardV2Service.get_rendement(
-            niveau=self.get_niveau(), **self.get_filters()
-        )
+        f = self.get_filters()
+        aliases = self.get_db_aliases()
+        if len(aliases) == 1:
+            data = DashboardV2Service.get_rendement(
+                code_filiale=f["code_filiale"],
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+                niveau=self.get_niveau(),
+                using=aliases[0],
+            )
+            return Response(data)
+
+        # Cross-filiale merge: query every affiliate database and merge the
+        # per-filiale results in Python.
+        pointage_evolutions = []
+        rendement_evolutions = []
+        breakdowns = []
+        for alias in aliases:
+            result = DashboardV2Service.get_rendement(
+                code_filiale=None,
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+                niveau=self.get_niveau(),
+                using=alias,
+            )
+            pointage_evolutions.append(result["pointageEvolution"])
+            rendement_evolutions.append(result["rendementEvolution"])
+            breakdowns.append(result["breakdown"])
+
+        data = {
+            "pointageEvolution": DashboardV2Service._merge_evolution(pointage_evolutions),
+            "rendementEvolution": DashboardV2Service._merge_evolution(rendement_evolutions),
+            "breakdown": DashboardV2Service._merge_breakdown(breakdowns),
+        }
 
         return Response(data)
 
@@ -4198,9 +5337,102 @@ class DashboardV2FinancesAPIView(DashboardV2BaseAPIView):
 
     def get(self, request):
 
-        data = DashboardV2Service.get_finances(
-            niveau=self.get_niveau(), **self.get_filters()
+        f = self.get_filters()
+        aliases = self.get_db_aliases()
+        if len(aliases) == 1:
+            data = DashboardV2Service.get_finances(
+                code_filiale=f["code_filiale"],
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+                niveau=self.get_niveau(),
+                using=aliases[0],
+            )
+            return Response(data)
+
+        # Cross-filiale merge: query every affiliate database and merge the
+        # per-filiale results in Python. The rentabilite ranking is cached per
+        # (filiale, date, famille) so it is re-queried per alias; the cache key
+        # already includes ``code_filiale or "all"`` which is ``None`` here, so
+        # each alias's ranking is cached independently and merged by code.
+        ca_evolutions = []
+        ca_breakdowns = []
+        taux_utilisation_evolutions = []
+        taux_utilisation_breakdowns = []
+        taux_chomage_evolutions = []
+        taux_chomage_breakdowns = []
+        rentabilite_evolutions = []
+        rentabilite_rankings = []
+        taux_affectation_evolutions = []
+        taux_affectation_breakdowns = []
+        taux_affectation_globals = []
+        for alias in aliases:
+            result = DashboardV2Service.get_finances(
+                code_filiale=None,
+                date_debut=f["date_debut"],
+                date_fin=f["date_fin"],
+                code_famille=f["code_famille"],
+                niveau=self.get_niveau(),
+                using=alias,
+            )
+            ca_evolutions.append(result["caLocationInterne"]["evolution"])
+            ca_breakdowns.append(result["caLocationInterne"]["breakdown"])
+            taux_utilisation_evolutions.append(result["tauxUtilisation"]["evolution"])
+            taux_utilisation_breakdowns.append(result["tauxUtilisation"]["breakdown"])
+            taux_chomage_evolutions.append(result["tauxChomage"]["evolution"])
+            taux_chomage_breakdowns.append(result["tauxChomage"]["breakdown"])
+            rentabilite_evolutions.append(result["rentabilite"]["evolution"])
+            rentabilite_rankings.append(result["rentabilite"]["ranking"])
+            taux_affectation_evolutions.append(result["tauxAffectation"]["evolution"])
+            taux_affectation_breakdowns.append(result["tauxAffectation"]["breakdown"])
+            taux_affectation_globals.append(result["tauxAffectationGlobal"])
+
+        # Merge taux_affectation_global: sum parc_total and engins_affectes, then
+        # recompute the rate from the merged totals (the frontend must never
+        # sum a niveau-dependent breakdown to derive the global rate).
+        merged_parc_total = sum(
+            float(g.get("parc_total", 0) or 0) for g in taux_affectation_globals
         )
+        merged_engins_affectes = sum(
+            float(g.get("engins_affectes", 0) or 0) for g in taux_affectation_globals
+        )
+        taux_affectation_global = {
+            "parc_total": merged_parc_total,
+            "engins_affectes": merged_engins_affectes,
+            "taux_affectation": round(
+                (merged_engins_affectes / merged_parc_total * 100)
+                if merged_parc_total
+                else 0.0,
+                1,
+            ),
+        }
+
+        data = {
+            "caLocationInterne": {
+                "evolution": DashboardV2Service._merge_evolution(ca_evolutions),
+                "breakdown": DashboardV2Service._merge_breakdown(ca_breakdowns),
+            },
+            "rentabilite": {
+                "evolution": DashboardV2Service._merge_evolution(rentabilite_evolutions),
+                "ranking": DashboardV2Service._merge_rentabilite_ranking(
+                    rentabilite_rankings
+                ),
+            },
+            "tauxAffectation": {
+                "evolution": DashboardV2Service._merge_evolution(taux_affectation_evolutions),
+                "breakdown": DashboardV2Service._merge_breakdown(taux_affectation_breakdowns),
+                "global": taux_affectation_global,
+            },
+            "tauxAffectationGlobal": taux_affectation_global,
+            "tauxUtilisation": {
+                "evolution": DashboardV2Service._merge_evolution(taux_utilisation_evolutions),
+                "breakdown": DashboardV2Service._merge_breakdown(taux_utilisation_breakdowns),
+            },
+            "tauxChomage": {
+                "evolution": DashboardV2Service._merge_evolution(taux_chomage_evolutions),
+                "breakdown": DashboardV2Service._merge_breakdown(taux_chomage_breakdowns),
+            },
+        }
 
         return Response(data)
 
@@ -4226,7 +5458,8 @@ class DashboardV2FilialesAPIView(DashboardV2BaseAPIView):
 
     def get(self, request):
 
-        return Response(DashboardV2Service.get_filiales())
+        codes = get_allowed_filiale_codes(request.user)
+        return Response(DashboardV2Service.get_filiales(codes))
 
 
 class DashboardV2FamillesAPIView(DashboardV2BaseAPIView):
@@ -4287,15 +5520,34 @@ class DashboardV2FilialeStatsAPIView(DashboardV2BaseAPIView):
     def get(self, request):
 
         f = self.get_filters()
-
-        return Response(
-            DashboardV2Service.get_filiale_stats(
-                code_filiale=f["code_filiale"],
-                date_debut=f["date_debut"],
-                date_fin=f["date_fin"],
-                code_famille=f["code_famille"],
+        aliases = self.get_db_aliases()
+        if len(aliases) == 1:
+            return Response(
+                DashboardV2Service.get_filiale_stats(
+                    code_filiale=f["code_filiale"],
+                    date_debut=f["date_debut"],
+                    date_fin=f["date_fin"],
+                    code_famille=f["code_famille"],
+                    using=aliases[0],
+                )
             )
-        )
+
+        # Cross-filiale merge: query every affiliate database and merge the
+        # per-filiale results in Python. Each alias returns per-filiale stats
+        # grouped by code_filiale_g, so the merge is keyed by code_filiale.
+        stats_list = []
+        for alias in aliases:
+            stats_list.append(
+                DashboardV2Service.get_filiale_stats(
+                    code_filiale=None,
+                    date_debut=f["date_debut"],
+                    date_fin=f["date_fin"],
+                    code_famille=f["code_famille"],
+                    using=alias,
+                )
+            )
+
+        return Response(DashboardV2Service._merge_filiale_stats(stats_list))
 
 
 class CurrentUserView(PagePermissionRequiredMixin, APIView):
@@ -4308,6 +5560,29 @@ class CurrentUserView(PagePermissionRequiredMixin, APIView):
 
         permissions_list = profile.permissions if profile else []
 
+        profile_filiale = getattr(profile, "filiale", None) if profile else None
+        filiale_code = profile_filiale.code_filiale if profile_filiale else None
+
+        from django.conf import settings
+
+        from api.permissions import can_access_all_filiales
+
+        if can_access_all_filiales(request.user):
+
+            accessible_databases = [
+
+                filiale_db_name(code) for code in settings.FILIALE_DATABASES
+
+            ]
+
+        elif filiale_code:
+
+            accessible_databases = [filiale_db_name(filiale_code)]
+
+        else:
+
+            accessible_databases = []
+
         data = {
             "id": request.user.id,
             "username": request.user.username,
@@ -4317,6 +5592,11 @@ class CurrentUserView(PagePermissionRequiredMixin, APIView):
             "is_active": request.user.is_active,
             "is_superuser": request.user.is_superuser,
             "permissions": permissions_list,
+
+            "can_access_all_filiales": can_access_all_filiales(request.user),
+            "filiale": filiale_code,
+
+            "accessible_databases": accessible_databases,
         }
 
         return Response(data)
@@ -4352,6 +5632,8 @@ class UserViewSet(SearchableModelViewSet):
 
             user.save()
 
+        self._apply_profile_filiale(user)
+
         log_action(
             user=self.request.user,
             action=JournalActions.CREATE,
@@ -4362,6 +5644,18 @@ class UserViewSet(SearchableModelViewSet):
             request=self.request,
             description=f"CrÃÂ©ation de User",
         )
+
+    def _apply_profile_filiale(self, user):
+        """Persist the optional filiale selection on the user's profile."""
+        raw = self.request.data.get("filiale")
+        if raw is None:
+            code = None
+        else:
+            code = str(raw).strip() or None
+        filiale = Filiale.objects.filter(code_filiale=code).first() if code else None
+        profile = UserProfile.objects.get_or_create(user=user)[0]
+        profile.filiale = filiale
+        profile.save()
 
     def perform_update(self, serializer):
 
@@ -4378,6 +5672,10 @@ class UserViewSet(SearchableModelViewSet):
             user.set_password(password)
 
             user.save()
+
+        if "filiale" in self.request.data:
+
+            self._apply_profile_filiale(user)
 
         new_data = serialize_for_journal(user, UserSerializer)
 
@@ -4450,6 +5748,29 @@ class UserViewSet(SearchableModelViewSet):
 
         permissions_list = profile.permissions if profile else []
 
+        profile_filiale = getattr(profile, "filiale", None) if profile else None
+        filiale_code = profile_filiale.code_filiale if profile_filiale else None
+
+        from django.conf import settings
+        from api.permissions import can_access_all_filiales
+        from .multidb import filiale_db_name
+
+        if can_access_all_filiales(request.user):
+
+            accessible_databases = [
+
+                filiale_db_name(code) for code in settings.FILIALE_DATABASES
+
+            ]
+
+        elif filiale_code:
+
+            accessible_databases = [filiale_db_name(filiale_code)]
+
+        else:
+
+            accessible_databases = []
+
         data = {
             "id": request.user.id,
             "username": request.user.username,
@@ -4459,6 +5780,11 @@ class UserViewSet(SearchableModelViewSet):
             "is_active": request.user.is_active,
             "is_superuser": request.user.is_superuser,
             "permissions": permissions_list,
+
+            "can_access_all_filiales": can_access_all_filiales(request.user),
+            "filiale": filiale_code,
+
+            "accessible_databases": accessible_databases,
         }
 
         return Response(data)
@@ -4672,6 +5998,8 @@ class PendingListView(PagePermissionRequiredMixin, APIView):
 
         from collections import defaultdict
 
+        from django.conf import settings
+
         batch_id = request.query_params.get("batch_id")
 
         model = request.query_params.get("model")
@@ -4696,11 +6024,26 @@ class PendingListView(PagePermissionRequiredMixin, APIView):
             ("regularisation_gm", Regularisation_GM, "gestion.regularisations_gm"),
         ]
 
+        # Determine which filiale databases to scan. Admin queries every
+        # filiale DB separately and merges in Python.
+        filiale_dbs = [
+            filiale_db_name(code) for code in settings.FILIALE_DATABASES
+        ]
+
         result = []
 
         if batch_id:
 
-            # Return details for a specific batch
+            # Return details for a specific batch: find the filiale DB that
+            # owns the batch, then query only that database.
+
+            owner_db = find_filiale_db_for_batch(batch_id)
+
+            if owner_db is None:
+
+                return Response({"batch_id": batch_id, "models": []})
+
+            dbs_to_query = [owner_db]
 
             for model_key, ModelClass, perm in model_configs:
 
@@ -4710,8 +6053,9 @@ class PendingListView(PagePermissionRequiredMixin, APIView):
 
                 try:
 
-                    qs = ModelClass.objects.filter(
-                        status="PENDING", import_batch_id=batch_id
+                    qs = (
+                        ModelClass.objects.using(dbs_to_query[0])
+                        .filter(status="PENDING", import_batch_id=batch_id)
                     )
 
                     items = []
@@ -4724,7 +6068,7 @@ class PendingListView(PagePermissionRequiredMixin, APIView):
                                 val = getattr(obj, field_name, None)
                                 if val is not None:
                                     # If it's a model instance (ForeignKey), get its string representation or pk
-                                    if hasattr(val, '_meta'):  # Django model instance
+                                    if hasattr(val, "_meta"):  # Django model instance
                                         return str(val)
                                     return val
                             return None
@@ -4732,8 +6076,12 @@ class PendingListView(PagePermissionRequiredMixin, APIView):
                         items.append(
                             {
                                 "id": obj.id,
-                                "code": get_field_value(obj, "code", "code_materiel", "code_affectation"),
-                                "designation": get_field_value(obj, "designation", "libelle"),
+                                "code": get_field_value(
+                                    obj, "code", "code_materiel", "code_affectation"
+                                ),
+                                "designation": get_field_value(
+                                    obj, "designation", "libelle"
+                                ),
                                 "created_at": (
                                     obj.created_at.isoformat()
                                     if hasattr(obj, "created_at") and obj.created_at
@@ -4758,7 +6106,7 @@ class PendingListView(PagePermissionRequiredMixin, APIView):
 
             return Response({"batch_id": batch_id, "models": result})
 
-        # Group by batch_id
+        # Group by batch_id across all filiale databases.
 
         batches = defaultdict(
             lambda: {"models": defaultdict(int), "created_at": None, "module": None}
@@ -4766,23 +6114,27 @@ class PendingListView(PagePermissionRequiredMixin, APIView):
 
         for model_key, ModelClass, perm in model_configs:
 
-            try:
+            for db in filiale_dbs:
 
-                qs = ModelClass.objects.filter(status="PENDING").exclude(
-                    import_batch_id__isnull=True
-                )
+                try:
 
-                for obj in (
-                    qs.values("import_batch_id").annotate(c=Count("id")).order_by()
-                ):
+                    qs = ModelClass.objects.using(db).filter(
+                        status="PENDING"
+                    ).exclude(import_batch_id__isnull=True)
 
-                    bid = obj["import_batch_id"]
+                    for obj in (
+                        qs.values("import_batch_id")
+                        .annotate(c=Count("id"))
+                        .order_by()
+                    ):
 
-                    batches[bid]["models"][model_key] += obj["c"]
+                        bid = obj["import_batch_id"]
 
-            except Exception:
+                        batches[bid]["models"][model_key] += obj["c"]
 
-                continue
+                except Exception:
+
+                    continue
 
         # Try to get representative created_at and module from notifications
 
@@ -4884,21 +6236,94 @@ class ConfirmPendingView(PagePermissionRequiredMixin, APIView):
 
         ModelClass = model_map[model_name]
 
-        qs = ModelClass.objects.filter(status="PENDING")
-
-        if ids:
-
-            qs = qs.filter(id__in=ids)
-
         if batch_id:
 
-            qs = qs.filter(import_batch_id=batch_id)
+            # A batch belongs to a single filiale database. Resolve it and
+            # route all writes to that database.
+            db = find_filiale_db_for_batch(batch_id)
 
-        updated = qs.update(
-            status="CONFIRMED", confirmed_by=user, confirmed_at=timezone.now()
-        )
+            if db is None:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Aucun lot en attente trouvÃÂ© pour ce batch_id.",
+                    },
+                    status=404,
+                )
+
+            with transaction.atomic(using=db):
+
+                qs = (
+                    ModelClass.objects.using(db)
+                    .select_for_update()
+                    .filter(status="PENDING", import_batch_id=batch_id)
+                )
+
+                if ids:
+
+                    qs = qs.filter(id__in=ids)
+
+                updated = qs.update(
+                    status="CONFIRMED", confirmed_by=user, confirmed_at=timezone.now()
+                )
+
+        else:
+
+            # Single-DB confirmation scoped to the current request's filiale.
+
+            from .multidb import get_current_filiale, filiale_db_name
+
+            from django.conf import settings
+
+            code = get_current_filiale()
+
+            if not code:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Aucune filiale rÃÂ©solue pour cette requÃÂate.",
+                    },
+                    status=400,
+                )
+
+            db = filiale_db_name(code)
+
+            if db not in settings.DATABASES:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": f"Base de donnÃÂes filiale '{db}' introuvable.",
+                    },
+                    status=400,
+                )
+
+            with transaction.atomic(using=db):
+
+                qs = (
+                    ModelClass.objects.using(db)
+                    .select_for_update()
+                    .filter(status="PENDING")
+                )
+
+                if ids:
+
+                    qs = qs.filter(id__in=ids)
+
+                updated = qs.update(
+                    status="CONFIRMED", confirmed_by=user, confirmed_at=timezone.now()
+                )
 
         return Response({"success": True, "updated": updated})
+
+
+# Maximum number of validation errors returned to the client by the bulk
+# confirmation endpoint.  A batch can hold tens of thousands of rows, so the
+# full list is logged server-side instead of being sent over the wire.
+
+MAX_BULK_CONFIRM_ERRORS = 50
 
 
 class BulkConfirmPendingView(PagePermissionRequiredMixin, APIView):
@@ -4908,6 +6333,7 @@ class BulkConfirmPendingView(PagePermissionRequiredMixin, APIView):
     def post(self, request):
 
         import logging
+
         logger = logging.getLogger(__name__)
 
         from django.utils import timezone
@@ -4932,6 +6358,20 @@ class BulkConfirmPendingView(PagePermissionRequiredMixin, APIView):
                 {"success": False, "message": "batch_id requis"}, status=400
             )
 
+        # Resolve the single filiale database that owns this batch.
+
+        db = find_filiale_db_for_batch(batch_id)
+
+        if db is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun lot en attente trouvÃÂ© pour ce batch_id.",
+                },
+                status=404,
+            )
+
         model_map = {
             "pointage": Pointage,
             "grand_materiel": Grand_Materiel,
@@ -4950,51 +6390,85 @@ class BulkConfirmPendingView(PagePermissionRequiredMixin, APIView):
 
         errors = []
 
-        for model_name, ModelClass in model_map.items():
+        # A batch belongs to one affiliate, which is not necessarily the
+        # affiliate of the administrator confirming it.  Django resolves the
+        # database of the foreign-key and unique checks performed by
+        # ``full_clean()`` through the router, which always answers with the
+        # request-scoped affiliate.  Without pinning the routing to the
+        # affiliate that owns the batch, every row would be validated
+        # against the wrong database and reported as invalid.
 
-            try:
+        affiliate_code = filiale_code_for_db(db)
 
-                qs = ModelClass.objects.filter(
-                    status="PENDING", import_batch_id=batch_id
-                )
+        with affiliate_routing(affiliate_code):
 
-                count = qs.count()
+            with transaction.atomic(using=db):
 
-                if count > 0:
+                # Validate every pending row of the batch first, so that
+                # nothing is confirmed when a single row is invalid.
 
-                    # Validate each record before confirming (run model validation)
+                for model_name, ModelClass in model_map.items():
 
-                    for obj in qs:
+                    try:
+
+                        qs = (
+                            ModelClass.objects.using(db)
+                            .select_for_update()
+                            .filter(status="PENDING", import_batch_id=batch_id)
+                        )
+
+                        for obj in qs:
+
+                            try:
+
+                                obj.full_clean()
+
+                            except Exception as e:
+
+                                errors.append(f"{model_name} {obj.id}: {str(e)}")
+
+                    except Exception as e:
+
+                        errors.append(f"{model_name}: {str(e)}")
+
+                if not errors:
+
+                    for model_name, ModelClass in model_map.items():
 
                         try:
 
-                            obj.full_clean()
+                            updated = (
+                                ModelClass.objects.using(db)
+                                .filter(status="PENDING", import_batch_id=batch_id)
+                                .update(
+                                    status="CONFIRMED",
+                                    confirmed_by=user,
+                                    confirmed_at=timezone.now(),
+                                )
+                            )
+
+                            total_updated += updated
 
                         except Exception as e:
 
-                            errors.append(f"{model_name} {obj.id}: {str(e)}")
-
-                    if not errors:
-
-                        updated = qs.update(
-                            status="CONFIRMED",
-                            confirmed_by=user,
-                            confirmed_at=timezone.now(),
-                        )
-
-                        total_updated += updated
-
-            except Exception as e:
-
-                errors.append(f"{model_name}: {str(e)}")
+                            errors.append(f"{model_name}: {str(e)}")
 
         if errors:
+
+            logger.error(
+                "Bulk confirmation of batch %s failed: %d validation error(s). "
+                "First errors: %s",
+                batch_id,
+                len(errors),
+                errors[:20],
+            )
 
             return Response(
                 {
                     "success": False,
                     "message": "Erreurs de validation",
-                    "errors": errors,
+                    "errors": errors[:MAX_BULK_CONFIRM_ERRORS],
+                    "error_count": len(errors),
                 },
                 status=400,
             )
@@ -5033,7 +6507,10 @@ class BulkConfirmPendingView(PagePermissionRequiredMixin, APIView):
 
             except Exception as e:
 
-                logger.error(f"Failed to update pending notifications to IMPORT_CONFIRMED: {e}", exc_info=True)
+                logger.error(
+                    f"Failed to update pending notifications to IMPORT_CONFIRMED: {e}",
+                    exc_info=True,
+                )
 
         return Response({"success": True, "updated": total_updated})
 
@@ -5074,6 +6551,20 @@ class RejectPendingView(PagePermissionRequiredMixin, APIView):
                 {"success": False, "message": "Motif de rejet requis"}, status=400
             )
 
+        # Resolve the single filiale database that owns this batch.
+
+        db = find_filiale_db_for_batch(batch_id)
+
+        if db is None:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun lot en attente trouvÃÂ© pour ce batch_id.",
+                },
+                status=404,
+            )
+
         model_map = {
             "pointage": Pointage,
             "grand_materiel": Grand_Materiel,
@@ -5096,67 +6587,77 @@ class RejectPendingView(PagePermissionRequiredMixin, APIView):
 
         User = get_user_model()
 
-        for model_name, ModelClass in model_map.items():
+        with transaction.atomic(using=db):
 
-            try:
+            for model_name, ModelClass in model_map.items():
 
-                qs = ModelClass.objects.filter(
-                    status="PENDING", import_batch_id=batch_id
-                )
+                try:
 
-                model_count = 0
-                model_import_dates = []
-
-                for obj in qs:
-
-                    obj.status = "REJECTED"
-
-                    obj.rejected_by = user
-
-                    obj.rejected_at = timezone.now()
-
-                    obj.rejection_reason = reason
-
-                    obj.save(
-                        update_fields=[
-                            "status",
-                            "rejected_by",
-                            "rejected_at",
-                            "rejection_reason",
-                        ]
+                    qs = (
+                        ModelClass.objects.using(db)
+                        .select_for_update()
+                        .filter(status="PENDING", import_batch_id=batch_id)
                     )
 
-                    total_updated += 1
-                    model_count += 1
+                    model_count = 0
+                    model_import_dates = []
 
-                    if obj.created_at:
-                        model_import_dates.append(obj.created_at)
+                    for obj in qs:
 
-                    # Collect importer for notification
-                    if obj.imported_by:
-                        imp_id = obj.imported_by.id
-                        if imp_id not in importers_notified:
-                            importers_notified[imp_id] = {
-                                "models": [],
-                                "total_records": 0,
-                                "import_dates": [],
-                            }
-                        importers_notified[imp_id]["models"].append(model_name)
-                        importers_notified[imp_id]["total_records"] += 1
+                        obj.status = "REJECTED"
+
+                        obj.rejected_by = user
+
+                        obj.rejected_at = timezone.now()
+
+                        obj.rejection_reason = reason
+
+                        obj.save(
+                            using=db,
+                            update_fields=[
+                                "status",
+                                "rejected_by",
+                                "rejected_at",
+                                "rejection_reason",
+                            ],
+                        )
+
+                        total_updated += 1
+                        model_count += 1
+
                         if obj.created_at:
-                            importers_notified[imp_id]["import_dates"].append(obj.created_at)
+                            model_import_dates.append(obj.created_at)
 
-                if model_count > 0:
-                    pass  # model processed
+                        # Collect importer for notification
+                        if obj.imported_by:
+                            imp_id = obj.imported_by.id
+                            if imp_id not in importers_notified:
+                                importers_notified[imp_id] = {
+                                    "models": [],
+                                    "total_records": 0,
+                                    "import_dates": [],
+                                }
+                            importers_notified[imp_id]["models"].append(model_name)
+                            importers_notified[imp_id]["total_records"] += 1
+                            if obj.created_at:
+                                importers_notified[imp_id][
+                                    "import_dates"
+                                ].append(obj.created_at)
 
-            except Exception as e:
+                    if model_count > 0:
+                        pass  # model processed
 
-                return Response(
-                    {"success": False, "message": f"Erreur sur {model_name}: {str(e)}"},
-                    status=500,
-                )
+                except Exception as e:
 
-        # Send notification to importers
+                    return Response(
+                        {
+                            "success": False,
+                            "message": f"Erreur sur {model_name}: {str(e)}",
+                        },
+                        status=500,
+                    )
+
+        # Send notification to importers (central DB: Notification)
 
         if importers_notified:
 
@@ -5171,8 +6672,12 @@ class RejectPendingView(PagePermissionRequiredMixin, APIView):
                     importer = User.objects.get(id=importer_id)
 
                     models_str = ", ".join(set(details["models"]))
-                    import_dt_min = min(details["import_dates"]) if details["import_dates"] else None
-                    import_dt_max = max(details["import_dates"]) if details["import_dates"] else None
+                    import_dt_min = (
+                        min(details["import_dates"]) if details["import_dates"] else None
+                    )
+                    import_dt_max = (
+                        max(details["import_dates"]) if details["import_dates"] else None
+                    )
                     import_datetime = import_dt_min
 
                     import_datetime_str = ""
@@ -5180,7 +6685,10 @@ class RejectPendingView(PagePermissionRequiredMixin, APIView):
                         if import_dt_min == import_dt_max:
                             import_datetime_str = import_dt_min.strftime("%d/%m/%Y %H:%M")
                         else:
-                            import_datetime_str = f"{import_dt_min.strftime('%d/%m/%Y %H:%M')} - {import_dt_max.strftime('%d/%m/%Y %H:%M')}"
+                            import_datetime_str = (
+                                f"{import_dt_min.strftime('%d/%m/%Y %H:%M')} - "
+                                f"{import_dt_max.strftime('%d/%m/%Y %H:%M')}"
+                            )
 
                     title = f"Import rejeté: lot {batch_id[:8]}"
                     message_lines = [
@@ -5206,7 +6714,7 @@ class RejectPendingView(PagePermissionRequiredMixin, APIView):
                         is_read=False,
                         related_object_type="batch",
                         import_model=models_str,
-                        record_count=details['total_records'],
+                        record_count=details["total_records"],
                         import_datetime=import_datetime,
                         rejection_datetime=rejection_time,
                         rejection_reason=reason,
@@ -5223,7 +6731,7 @@ class RejectPendingView(PagePermissionRequiredMixin, APIView):
                             related_object_id=batch_id,
                             created_by=user,
                             import_model=models_str,
-                            record_count=details['total_records'],
+                            record_count=details["total_records"],
                             import_datetime=import_datetime,
                             rejection_datetime=rejection_time,
                             rejection_reason=reason,

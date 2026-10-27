@@ -2,6 +2,7 @@ import csv
 from decimal import Decimal, ROUND_HALF_UP
 from django.core.exceptions import ValidationError as DjangoValidationError
 from api.models import Affectation_Materiel, Pointage
+from api.multidb import get_filiale_db
 from .csv_normalizer import CsvNormalizer
 from .validation import ValidationReport, CsvSchema
 
@@ -24,6 +25,7 @@ class PointageCsvValidator:
         self.delimiter = delimiter
         self.encoding = encoding
         self.filiale = filiale
+        self.filiale_db = get_filiale_db(filiale)
 
         self.file = CsvNormalizer.normalize(
             uploaded_file=uploaded_file,
@@ -54,14 +56,14 @@ class PointageCsvValidator:
                 self.normalize_affectation_date(a.date_affectation),
                 a.code_site.code_site,
             ): a.id
-            for a in Affectation_Materiel.objects.select_related(
+            for a in Affectation_Materiel.objects.using(self.filiale_db).select_related(
                 "code_materiel",
                 "code_site",
             )
         }
 
         self.existing_pointages = set(
-            Pointage.objects.values_list(
+            Pointage.objects.using(self.filiale_db).values_list(
                 "affectation_id",
                 "mmaa",
             )

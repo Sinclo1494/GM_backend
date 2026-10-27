@@ -3,6 +3,7 @@
 from api.models import (
     Categorie_GM,
 )
+from api.multidb import get_filiale_db
 
 from ..validation_cache import ValidationCache
 
@@ -47,6 +48,8 @@ class CategorieGMCsvImporter:
         summary = payload.get("summary", {})
         filename = payload.get("filename", "")
 
+        filiale_db = get_filiale_db(filiale)
+
         objects = [
             Categorie_GM(
                 **row,
@@ -71,8 +74,8 @@ class CategorieGMCsvImporter:
             }
 
         try:
-            with transaction.atomic():
-                Categorie_GM.objects.bulk_create(
+            with transaction.atomic(using=filiale_db):
+                Categorie_GM.objects.using(filiale_db).bulk_create(
                     objects,
                     batch_size=BATCH_SIZE,
                 )

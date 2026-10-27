@@ -15,6 +15,7 @@ from api.models import (
     Type_Etat_Materiel,
     Type_Situation,
 )
+from api.multidb import get_filiale_db
 
 from ..validation_cache import ValidationCache
 
@@ -112,7 +113,10 @@ class SituationAffectationCsvImporter:
         # Materials
         # -------------------------------------------------
 
-        self.materials = {gm.code_materiel: gm for gm in Grand_Materiel.objects.all()}
+        self.materials = {
+            gm.code_materiel: gm
+            for gm in Grand_Materiel.objects.using(self.filiale_db).all()
+        }
 
         # -------------------------------------------------
         # Type situations
@@ -123,7 +127,9 @@ class SituationAffectationCsvImporter:
                 ts.code_type_affectation_id,
                 ts.code_type_situation,
             ): ts
-            for ts in Type_Situation.objects.select_related("code_type_affectation")
+            for ts in Type_Situation.objects.using(self.filiale_db).select_related(
+                "code_type_affectation"
+            )
         }
 
         # -------------------------------------------------
@@ -132,7 +138,7 @@ class SituationAffectationCsvImporter:
 
         self.type_etats = {
             etat.code_type_etat_materiel: etat
-            for etat in Type_Etat_Materiel.objects.all()
+            for etat in Type_Etat_Materiel.objects.using(self.filiale_db).all()
         }
 
         # -------------------------------------------------
@@ -142,12 +148,16 @@ class SituationAffectationCsvImporter:
         self.affectations.clear()
         self.last_affectation_numbers.clear()
 
-        queryset = Affectation_Materiel.objects.select_related("code_materiel").only(
-            "id",
-            "code_affectation",
-            "date_affectation",
-            "code_site_id",
-            "code_materiel__code_materiel",
+        queryset = (
+            Affectation_Materiel.objects.using(self.filiale_db)
+            .select_related("code_materiel")
+            .only(
+                "id",
+                "code_affectation",
+                "date_affectation",
+                "code_site_id",
+                "code_materiel__code_materiel",
+            )
         )
 
         for affectation in queryset:
@@ -175,17 +185,21 @@ class SituationAffectationCsvImporter:
 
         self.situations.clear()
 
-        queryset = Situation_Materiel.objects.select_related(
-            "affectation_id",
-            "type_situation_id",
-            "type_situation_id__code_type_affectation",
-            "code_type_etat_materiel",
-        ).only(
-            "affectation_id",
-            "date_situation",
-            "type_situation_id__code_type_affectation",
-            "type_situation_id__code_type_situation",
-            "code_type_etat_materiel",
+        queryset = (
+            Situation_Materiel.objects.using(self.filiale_db)
+            .select_related(
+                "affectation_id",
+                "type_situation_id",
+                "type_situation_id__code_type_affectation",
+                "code_type_etat_materiel",
+            )
+            .only(
+                "affectation_id",
+                "date_situation",
+                "type_situation_id__code_type_affectation",
+                "type_situation_id__code_type_situation",
+                "code_type_etat_materiel",
+            )
         )
 
         for situation in queryset:
@@ -207,7 +221,11 @@ class SituationAffectationCsvImporter:
         # Max on CharField returns lexicographically max string (e.g. '99' > '160')
         # So we must compute the actual numeric maximum
         max_numeric = 0
-        for s in Situation_Materiel.objects.only("id_situation").iterator():
+        for s in (
+            Situation_Materiel.objects.using(self.filiale_db)
+            .only("id_situation")
+            .iterator()
+        ):
             try:
                 val = int(s.id_situation)
                 if val > max_numeric:
@@ -318,6 +336,8 @@ class SituationAffectationCsvImporter:
                 "La filiale est absente des données de validation."
             )
 
+        self.filiale_db = get_filiale_db(self.filiale)
+
         # Ensure import_batch_id is set from payload if not provided
         if not self.import_batch_id:
             self.import_batch_id = payload.get("import_batch_id")
@@ -344,7 +364,7 @@ class SituationAffectationCsvImporter:
 
         try:
 
-            with transaction.atomic():
+            with transaction.atomic(using=self.filiale_db):
 
                 batch = []
 
@@ -423,18 +443,14 @@ class SituationAffectationCsvImporter:
                         date_modification=row.get('date_modification'),
                     )
 
-                    batch.append(
-                        situation,
-                    )
+                    batch.append(situation)
 
                     # -----------------------------------------
                     # Update cache immediately
                     # Prevent duplicates inside the same import
                     # -----------------------------------------
 
-                    self.situations.add(
-                        situation_key,
-                    )
+                    self.situations.add(situation_key)
 
                     imported_situations += 1
 
@@ -444,10 +460,9 @@ class SituationAffectationCsvImporter:
 
                     if len(batch) >= BATCH_SIZE:
 
-                        Situation_Materiel.objects.bulk_create(
-                            batch,
-                            batch_size=BATCH_SIZE,
-                        )
+                        Situation_Materiel.objects.using(
+                            self.filiale_db
+                        ).bulk_create(batch, batch_size=BATCH_SIZE)
 
                         batch.clear()
                 # -----------------------------------------
@@ -456,10 +471,9 @@ class SituationAffectationCsvImporter:
 
                 if batch:
 
-                    Situation_Materiel.objects.bulk_create(
-                        batch,
-                        batch_size=BATCH_SIZE,
-                    )
+                    Situation_Materiel.objects.using(
+                        self.filiale_db
+                    ).bulk_create(batch, batch_size=BATCH_SIZE)
 
         except IntegrityError as exc:
 

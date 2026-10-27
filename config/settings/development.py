@@ -17,8 +17,17 @@ DATABASES = {
         "PASSWORD": os.environ.get("DB_PASSWORD", "1494.slk"),
         "HOST": os.environ.get("DB_HOST", "localhost"),
         "PORT": os.environ.get("DB_PORT", "5432"),
+        "CONN_MAX_AGE": 60,
+        "OPTIONS": {
+            "connect_timeout": 10,
+        },
     }
 }
+
+# Re-create the "filiale_<code>" connection aliases from the "default"
+# connection above.  Without this the per-filiale databases are unknown to
+# Django and every routed query raises ConnectionDoesNotExist.
+DATABASES.update(build_filiale_databases(DATABASES["default"]))
 
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOWED_ORIGINS = [

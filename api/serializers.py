@@ -228,6 +228,7 @@ class UserSerializer(serializers.ModelSerializer):
     is_superuser = serializers.BooleanField(read_only=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     permissions = serializers.SerializerMethodField()
+    filiale = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -242,11 +243,18 @@ class UserSerializer(serializers.ModelSerializer):
             "date_joined",
             "password",
             "permissions",
+            "filiale",
         ]
 
     def get_permissions(self, obj):
         profile = getattr(obj, "profile", None)
         return list(profile.permissions) if profile else []
+
+    def get_filiale(self, obj):
+        profile = getattr(obj, "profile", None)
+        if profile is None or profile.filiale is None:
+            return None
+        return profile.filiale.code_filiale
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -270,6 +278,7 @@ class CurrentUserSerializer(serializers.Serializer):
     is_active = serializers.BooleanField()
     is_superuser = serializers.BooleanField()
     permissions = serializers.ListField(child=serializers.CharField())
+    can_access_all_filiales = serializers.BooleanField(default=False)
 
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:

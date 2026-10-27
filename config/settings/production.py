@@ -6,6 +6,10 @@ if not os.environ.get("DJANGO_SECRET_KEY"):
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() == "true"
 
+# Keep the "filiale_<code>" connection aliases in sync with the central
+# connection (credentials, host, options).
+DATABASES.update(build_filiale_databases(DATABASES["default"]))
+
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "").split(",")
 ALLOWED_HOSTS = [h.strip() for h in ALLOWED_HOSTS if h.strip()]
 

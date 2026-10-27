@@ -3,6 +3,7 @@
 from api.models import (
     Type_Marque,
 )
+from api.multidb import get_filiale_db
 
 from ..validation_cache import ValidationCache
 
@@ -66,6 +67,8 @@ class TypeMarqueCsvImporter:
         summary = payload.get("summary", {})
         filename = payload.get("filename", "")
 
+        filiale_db = get_filiale_db(filiale)
+
         # -----------------------------------------------------
         # 2. Build Django objects
         #
@@ -107,9 +110,9 @@ class TypeMarqueCsvImporter:
 
         try:
 
-            with transaction.atomic():
+            with transaction.atomic(using=filiale_db):
 
-                Type_Marque.objects.bulk_create(
+                Type_Marque.objects.using(filiale_db).bulk_create(
                     objects,
                     batch_size=BATCH_SIZE,
                 )

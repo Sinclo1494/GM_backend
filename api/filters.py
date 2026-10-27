@@ -1,9 +1,9 @@
 import re
 
-from django.db.models import Q
+from django.db.models import OuterRef, Q, Subquery
 from django.utils import timezone
 from rest_framework import filters
-from api.models import Grand_Materiel
+from api.permissions import can_include_pending_data
 
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -108,6 +108,7 @@ class SituationMaterielFilter(filters.BaseFilterBackend):
         date_situation = request.query_params.get("date_situation")
         date_modification = request.query_params.get("date_modification")
         etat_materiel_libelle = request.query_params.get("etat_materiel_libelle")
+
         type_situation_libelle = request.query_params.get("type_situation_libelle")
         type_affectation_libelle = request.query_params.get("type_affectation_libelle")
 
@@ -166,15 +167,32 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
         num_serie = request.query_params.get("num_serie")
         immatriculation = request.query_params.get("immatriculation")
         code_sous_famille = request.query_params.get("code_sous_famille")
+        print("\n-------------------------------\n")
+        print("code_sous_famille",code_sous_famille)
         code_type_marque = request.query_params.get("code_type_marque")
+        print("code_type_marque",code_type_marque)
         libelle_sous_famille = request.query_params.get("libelle_sous_famille")
+        print("libelle_sous_famille",libelle_sous_famille)
         libelle_type_marque = request.query_params.get("libelle_type_marque")
-        code_filiale = request.query_params.get("code_filiale")
+        print("libelle_type_marque",libelle_type_marque)
+        code_filiale = request.query_params.get("code_filiale") or request.query_params.get("filiale")
+        print("code_filiale",code_filiale)
         libelle_filiale = request.query_params.get("libelle_filiale")
+        print("libelle_filiale",libelle_filiale)
+        code_famille = request.query_params.get("code_famille")
+        print("code_famille",code_famille)
         libelle_famille = request.query_params.get("libelle_famille")
+        print("libelle_famille",libelle_famille)   
+        code_categorie = request.query_params.get("code_categorie")
+        print("code_categorie",code_categorie)
         libelle_categorie = request.query_params.get("libelle_categorie")
+        print("libelle_categorie",libelle_categorie)
+        code_marque = request.query_params.get("code_marque")
+        print("code_marque",code_marque)
         libelle_marque = request.query_params.get("libelle_marque")
+        print("libelle_marque",libelle_marque)
         est_bloque = request.query_params.get("est_bloque")
+        status = request.query_params.get("status")
         date_acquisition = request.query_params.get("date_acquisition")
         date_modification = request.query_params.get("date_modification")
         created_at = request.query_params.get("created_at")
@@ -187,6 +205,10 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
 
         if code_materiel:
             queryset = queryset.filter(code_materiel__icontains=code_materiel)
+        if libelle_filiale:
+            queryset = queryset.filter(
+                Q(code_filiale_g__code_filiale__icontains=libelle_filiale)
+            )
         if materiel_id:
             queryset = queryset.filter(id__icontains=materiel_id)
         if user_id:
@@ -205,24 +227,20 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
         if code_type_marque:
             queryset = queryset.filter(code_type_marque__code_type_marque__icontains=code_type_marque)
         if libelle_sous_famille:
-            queryset = queryset.filter(code_sous_famille_materiel__libelle_sous_famille__icontains=libelle_sous_famille)
+            queryset = queryset.filter(code_sous_famille_materiel__code_sous_famille__icontains=libelle_sous_famille)
         if libelle_type_marque:
-            queryset = queryset.filter(code_type_marque__libelle_type_marque__icontains=libelle_type_marque)
-        if code_filiale:
-            queryset = queryset.filter(code_filiale_g__code_filiale__icontains=code_filiale)
-        if libelle_filiale:
-            queryset = queryset.filter(code_filiale_g__libelle_filiale__icontains=libelle_filiale)
+            queryset = queryset.filter(code_type_marque__code_type_marque__icontains=libelle_type_marque)
         if libelle_famille:
             queryset = queryset.filter(
-                code_sous_famille_materiel__code_famille_materiel__libelle_famille__icontains=libelle_famille
+                Q(code_sous_famille_materiel__code_famille_materiel__code_famille__icontains=libelle_famille)
             )
         if libelle_categorie:
             queryset = queryset.filter(
-                code_sous_famille_materiel__code_famille_materiel__code_categorie_gm__libelle_categorie__icontains=libelle_categorie
+                Q(code_sous_famille_materiel__code_famille_materiel__code_categorie_gm__code_categorie__icontains=libelle_categorie)
             )
         if libelle_marque:
             queryset = queryset.filter(
-                code_type_marque__code_marque__libelle_marque__icontains=libelle_marque
+                Q(code_type_marque__code_marque__code_marque__icontains=libelle_marque)
             )
         if date_acquisition:
             queryset = queryset.filter(_date_filter_q("date_acquisition", date_acquisition))
@@ -242,18 +260,19 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
             queryset = queryset.filter(puissance_materiel__icontains=puissance_materiel)
         if est_bloque is not None and est_bloque != "":
             queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
-
+        if status:
+            queryset = queryset.filter(status=status.strip().upper())
+        
         # Include pending Grand_Materiel records (status=PENDING) when requested by superuser
         include_pending = (
             request.query_params.get('include_pending', 'false').lower() == 'true'
-            and getattr(request.user, 'is_superuser', False)
+            and can_include_pending_data(request.user)
         )
 
         # Filter by type_affectation when filtered=true
         # Excludes materiel with latest situation type_affectation in 06, 07, 08 or libelle "NON FOURNIE"
         if filtered and filtered.lower() == "true":
-            from django.db.models import OuterRef, Subquery, Q
-            from api.models import Situation_Materiel, Type_Situation, Type_Affectation
+            from api.models import Situation_Materiel
 
             latest_situation = Situation_Materiel.objects.filter(
                 affectation_id__code_materiel__code_materiel=OuterRef("code_materiel"),
@@ -276,30 +295,32 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
 
         if include_pending:
             # Include pending records that don't have situations yet
+            from api.models import Grand_Materiel
             pending_qs = Grand_Materiel.objects.filter(status='PENDING')
+            # The status filter must also apply to the union, otherwise
+            # filtering on CONFIRMED would still return pending records.
+            if status:
+                pending_qs = pending_qs.filter(status=status.strip().upper())
             # Apply the same filters (filiale, famille, etc.) to pending records
             if code_filiale:
                 pending_qs = pending_qs.filter(code_filiale_g__code_filiale__icontains=code_filiale)
             if libelle_filiale:
-                pending_qs = pending_qs.filter(code_filiale_g__libelle_filiale__icontains=libelle_filiale)
-            if code_sous_famille:
-                pending_qs = pending_qs.filter(code_sous_famille_materiel__code_sous_famille__icontains=code_sous_famille)
-            if libelle_sous_famille:
-                pending_qs = pending_qs.filter(code_sous_famille_materiel__libelle_sous_famille__icontains=libelle_sous_famille)
+                pending_qs = pending_qs.filter(
+                    Q(code_filiale_g__code_filiale__icontains=libelle_filiale)
+                )
             if libelle_famille:
                 pending_qs = pending_qs.filter(
-                    code_sous_famille_materiel__code_famille_materiel__libelle_famille__icontains=libelle_famille
+                    Q(code_sous_famille_materiel__code_famille_materiel__code_famille__icontains=libelle_famille)
                 )
             if libelle_categorie:
                 pending_qs = pending_qs.filter(
-                    code_sous_famille_materiel__code_famille_materiel__code_categorie_gm__libelle_categorie__icontains=libelle_categorie
+                    Q(code_sous_famille_materiel__code_famille_materiel__code_categorie_gm__code_categorie__icontains=libelle_categorie)
                 )
             if libelle_marque:
                 pending_qs = pending_qs.filter(
-                    code_type_marque__code_marque__libelle_marque__icontains=libelle_marque
+                    Q(code_type_marque__code_marque__code_marque__icontains=libelle_marque)
                 )
             # Combine with main queryset
-            from django.db.models import Q as Q2
             queryset = queryset | pending_qs
             queryset = queryset.distinct()
 

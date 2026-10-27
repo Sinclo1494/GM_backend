@@ -6,6 +6,7 @@ from api.models import (
     Categorie_GM,
     Famille_Materiel,
 )
+from api.multidb import get_filiale_db
 
 from .csv_normalizer import CsvNormalizer
 from .validation import CsvSchema, ValidationReport
@@ -18,6 +19,7 @@ class FamilleCsvValidator:
         uploaded_file,
         schema: CsvSchema,
         mapping,
+        filiale,
         delimiter=";",
         encoding="utf-8",
     ):
@@ -25,6 +27,8 @@ class FamilleCsvValidator:
         self.schema = schema
         self.delimiter = delimiter
         self.encoding = encoding
+        self.filiale = filiale
+        self.filiale_db = get_filiale_db(filiale)
 
         self.file = CsvNormalizer.normalize(
             uploaded_file=uploaded_file,
@@ -39,14 +43,14 @@ class FamilleCsvValidator:
     def load_cache(self):
 
         self.categories = set(
-            Categorie_GM.objects.values_list(
+            Categorie_GM.objects.using(self.filiale_db).values_list(
                 "code_categorie",
                 flat=True,
             )
         )
 
         self.existing_familles = set(
-            Famille_Materiel.objects.values_list(
+            Famille_Materiel.objects.using(self.filiale_db).values_list(
                 "code_famille",
                 flat=True,
             )

@@ -10,6 +10,13 @@ class UserProfile(models.Model):
         on_delete=models.CASCADE,
         related_name="profile",
     )
+    filiale = models.ForeignKey(
+        "Filiale",
+        on_delete=models.SET_NULL,
+        related_name="users",
+        blank=True,
+        null=True,
+    )
     permissions = models.JSONField(default=list, blank=True)
     default_landing_page = models.CharField(max_length=200, blank=True, default="")
     remember_last_visited_page = models.BooleanField(default=False)

@@ -7,6 +7,7 @@ from api.models import (
     Filiale,
     Division,
 )
+from api.multidb import get_filiale_db
 
 from .csv_normalizer import CsvNormalizer
 from .validation import CsvSchema, ValidationReport
@@ -19,6 +20,7 @@ class SiteCsvValidator:
         uploaded_file,
         schema: CsvSchema,
         mapping,
+        filiale,
         delimiter=";",
         encoding="utf-8",
     ):
@@ -26,6 +28,8 @@ class SiteCsvValidator:
         self.schema = schema
         self.delimiter = delimiter
         self.encoding = encoding
+        self.filiale = filiale
+        self.filiale_db = get_filiale_db(filiale)
 
         self.file = CsvNormalizer.normalize(
             uploaded_file=uploaded_file,
@@ -65,7 +69,7 @@ class SiteCsvValidator:
         )
 
         self.existing_sites = set(
-            Site.objects.values_list(
+            Site.objects.using(self.filiale_db).values_list(
                 "code_site",
                 flat=True,
             )

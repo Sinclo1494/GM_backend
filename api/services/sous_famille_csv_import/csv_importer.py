@@ -3,6 +3,7 @@
 from api.models import (
     Sous_Famille_Materiel,
 )
+from api.multidb import get_filiale_db
 
 from ..validation_cache import ValidationCache
 
@@ -66,6 +67,8 @@ class SousFamilleCsvImporter:
         summary = payload.get("summary", {})
         filename = payload.get("filename", "")
 
+        filiale_db = get_filiale_db(filiale)
+
         # -----------------------------------------------------
         # 2. Build Django objects
         #
@@ -107,9 +110,9 @@ class SousFamilleCsvImporter:
 
         try:
 
-            with transaction.atomic():
+            with transaction.atomic(using=filiale_db):
 
-                Sous_Famille_Materiel.objects.bulk_create(
+                Sous_Famille_Materiel.objects.using(filiale_db).bulk_create(
                     objects,
                     batch_size=BATCH_SIZE,
                 )

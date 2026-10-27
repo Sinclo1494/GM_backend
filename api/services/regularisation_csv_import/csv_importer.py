@@ -1,6 +1,7 @@
 ﻿from django.db import IntegrityError, transaction
 
 from api.models import Regularisation_GM
+from api.multidb import get_filiale_db
 
 from ..validation_cache import ValidationCache
 
@@ -49,6 +50,8 @@ class RegularisationGMCsvImporter:
         summary = payload.get("summary", {})
         filename = payload.get("filename", "")
 
+        filiale_db = get_filiale_db(filiale)
+
         objects = [
             Regularisation_GM(
                 **row,
@@ -74,8 +77,8 @@ class RegularisationGMCsvImporter:
             }
 
         try:
-            with transaction.atomic():
-                Regularisation_GM.objects.bulk_create(
+            with transaction.atomic(using=filiale_db):
+                Regularisation_GM.objects.using(filiale_db).bulk_create(
                     objects,
                     batch_size=BATCH_SIZE,
                 )

@@ -1,6 +1,7 @@
 ﻿from django.db import IntegrityError, transaction
 
 from api.models import Grand_Materiel
+from api.multidb import get_filiale_db
 
 from ..validation_cache import ValidationCache
 
@@ -64,6 +65,8 @@ class GMCsvImporter:
         summary = payload.get("summary", {})
         filename = payload.get("filename", "")
 
+        filiale_db = get_filiale_db(filiale)
+
         # -----------------------------------------------------
         # 2. Build Django objects
         #
@@ -100,14 +103,14 @@ class GMCsvImporter:
             }
 
         # -----------------------------------------------------
-        # 4. Bulk insert
+        # 4. Bulk insert (target filiale DB only)
         # -----------------------------------------------------
 
         try:
 
-            with transaction.atomic():
+            with transaction.atomic(using=filiale_db):
 
-                Grand_Materiel.objects.bulk_create(
+                Grand_Materiel.objects.using(filiale_db).bulk_create(
                     objects,
                     batch_size=BATCH_SIZE,
                 )

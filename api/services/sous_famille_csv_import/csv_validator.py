@@ -6,6 +6,7 @@ from api.models import (
     Famille_Materiel,
     Sous_Famille_Materiel,
 )
+from api.multidb import get_filiale_db
 
 from .csv_normalizer import CsvNormalizer
 from .validation import CsvSchema, ValidationReport
@@ -18,6 +19,7 @@ class SousFamilleCsvValidator:
         uploaded_file,
         schema: CsvSchema,
         mapping,
+        filiale,
         delimiter=";",
         encoding="utf-8",
     ):
@@ -25,6 +27,8 @@ class SousFamilleCsvValidator:
         self.schema = schema
         self.delimiter = delimiter
         self.encoding = encoding
+        self.filiale = filiale
+        self.filiale_db = get_filiale_db(filiale)
 
         # ---------------------------------------------------------
         # Normalize the uploaded CSV into the schema order.
@@ -65,7 +69,7 @@ class SousFamilleCsvValidator:
         
 
         self.familles = set(
-            Famille_Materiel.objects.values_list(
+            Famille_Materiel.objects.using(self.filiale_db).values_list(
                 "code_famille",
                 flat=True,
             )
@@ -73,7 +77,7 @@ class SousFamilleCsvValidator:
 
 
         self.existing_sous_familles = set(
-            Sous_Famille_Materiel.objects.values_list(
+            Sous_Famille_Materiel.objects.using(self.filiale_db).values_list(
                 "code_sous_famille",
                 flat=True,
             )
@@ -267,7 +271,7 @@ class SousFamilleCsvValidator:
         # -----------------------------------------------------
 
         code_famille = row.get(
-            "code_famille"
+            "code_famille_materiel"
         )
 
         if (
@@ -277,9 +281,9 @@ class SousFamilleCsvValidator:
 
             report.add_error(
                 line=line_number,
-                field="code_famille",
+                field="code_famille_materiel",
                 value=code_famille,
-                message="Marque inexistante.",
+                message="Famille inexistante.",
             )
 
         
@@ -292,12 +296,12 @@ class SousFamilleCsvValidator:
         # foreign key uses a custom "to_field".
         # -----------------------------------------------------
 
-        if "code_famille" in row:
+        if "code_famille_materiel" in row:
 
             row[
-                "code_famille_id"
+                "code_famille_materiel_id"
             ] = row.pop(
-                "code_famille"
+                "code_famille_materiel"
             )
 
         # -----------------------------------------------------

@@ -3,6 +3,7 @@ import csv
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 from api.models import Marque_Materiel
+from api.multidb import get_filiale_db
 
 from .csv_normalizer import CsvNormalizer
 from .validation import CsvSchema, ValidationReport
@@ -15,6 +16,7 @@ class MarqueCsvValidator:
         uploaded_file,
         schema: CsvSchema,
         mapping,
+        filiale,
         delimiter=";",
         encoding="utf-8",
     ):
@@ -22,6 +24,8 @@ class MarqueCsvValidator:
         self.schema = schema
         self.delimiter = delimiter
         self.encoding = encoding
+        self.filiale = filiale
+        self.filiale_db = get_filiale_db(filiale)
 
         # ---------------------------------------------------------
         # Normalize the uploaded CSV into the schema order.
@@ -53,7 +57,7 @@ class MarqueCsvValidator:
         """
 
         self.existing_marques = set(
-            Marque_Materiel.objects.values_list(
+            Marque_Materiel.objects.using(self.filiale_db).values_list(
                 "code_marque",
                 flat=True,
             )

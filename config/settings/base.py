@@ -32,6 +32,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "api.middleware.FilialeRoutingMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -70,6 +71,126 @@ DATABASES = {
         },
     }
 }
+
+# ---------------------------------------------------------------------------
+# Per-filiale databases (one physical PostgreSQL database per filiale).
+#
+# Register each existing filiale here as: "<code_filiale>": "<database_name>".
+# Max 10 filiales. No auto-provisioning; databases must already exist with
+# identical schemas. Keys must match Filiale.code_filiale values.
+#
+# Example:
+#   FILIALE_DATABASES = {
+#       "P": "gm_filiale_p",
+#       "A": "gm_filiale_a",
+#   }
+#
+# A named connection "filiale_<code>" is created for each entry so the router
+# can route operations to the right database. settings.DATABASES is NOT mutated
+# at runtime.
+# ---------------------------------------------------------------------------
+FILIALE_DATABASES = {
+    "A": "gm_a",
+    "C": "gm_c",
+    "E": "gm_e",
+    "G": "gm_g",
+    "K": "gm_k",
+    "L": "gm_l",
+    "M": "gm_m",
+    "P": "gm_p",
+    "R": "gm_r",
+    "T": "gm_t",
+}
+
+# ---------------------------------------------------------------------------
+# Connection lifetime of the per-filiale aliases.
+#
+# Every alias points at the SAME PostgreSQL server, and `max_connections` is
+# a per-server budget, not a per-database one: the central database and the
+# ten affiliate databases share the same slots.  A request can also open
+# several affiliate connections at once (the all-filiales branch of the
+# analysis views queries every affiliate in turn), and Django only reaps a
+# connection when the thread that owns it handles another request, so a
+# connection owned by a slow thread outlives CONN_MAX_AGE.
+#
+# The pile-up reached the server limit and every endpoint answered
+# "FATAL: remaining connection slots are reserved for roles with the
+# SUPERUSER attribute" (HTTP 500).  Affiliate connections are therefore
+# closed at the end of the request that opened them: 0 means "close on
+# request end" in Django.
+#
+# The central "default" connection keeps its own lifetime (see CONN_MAX_AGE
+# in DATABASES): it is touched by every request, and one connection per
+# worker thread is cheap and bounded.
+# ---------------------------------------------------------------------------
+FILIALE_CONN_MAX_AGE = 0
+
+for _filiale_code, _filiale_db_name in FILIALE_DATABASES.items():
+    DATABASES[f"filiale_{_filiale_code}"] = {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": _filiale_db_name,
+        "USER": os.environ.get("DB_USER", "gm_user"),
+        "PASSWORD": os.environ.get("DB_PASSWORD", ""),
+        "HOST": os.environ.get("DB_HOST", "localhost"),
+        "PORT": os.environ.get("DB_PORT", "5432"),
+        "CONN_MAX_AGE": FILIALE_CONN_MAX_AGE,
+        "OPTIONS": {
+            "connect_timeout": 10,
+        },
+    }
+
+
+def build_filiale_databases(default_params):
+    """
+    Build the per-filiale connection aliases from the "default" connection.
+
+    Sub-settings modules (development / production) replace DATABASES with
+    their own "default" entry.  They MUST call this helper afterwards,
+    otherwise the "filiale_<code>" aliases disappear and every router query
+    raises ConnectionDoesNotExist.
+
+    The affiliate aliases get their own ``CONN_MAX_AGE`` (see
+    ``FILIALE_CONN_MAX_AGE``): copying the central connection's lifetime
+    would let every worker thread hold an affiliate connection set alive
+    indefinitely, and all the aliases share the same server-wide
+    ``max_connections`` budget.
+    """
+    databases = {}
+    for code, db_name in FILIALE_DATABASES.items():
+        params = dict(default_params)
+        params["NAME"] = db_name
+        params["CONN_MAX_AGE"] = FILIALE_CONN_MAX_AGE
+        databases[f"filiale_{code}"] = params
+    return databases
+
+
+# When True, affiliate-scoped models that cannot be routed to an affiliate
+# database fall back to the central "default" database instead of raising.
+# Set to False for a strict fail-closed setup (DatabaseRoutingError).
+FILIALE_ROUTING_FALLBACK_TO_CENTRAL = True
+
+# Explicit model-to-database map consumed by FailClosedDatabaseRouter.
+# Models here always use the central "default" database. All other business
+# models are filiale-scoped and fail closed to their user's filiale database.
+CENTRAL_DB_MODELS = {
+    "auth.user",
+    "auth.group",
+    "auth.permission",
+    "contenttypes.contenttype",
+    "sessions.session",
+    "api.userprofile",
+    "api.filiale",
+    "api.entreprise",
+    "api.division",
+    "api.famille_structures",
+    "api.journal",
+    "api.notification",
+}
+
+# ---------------------------------------------------------------------------
+# Database routing
+# ---------------------------------------------------------------------------
+DATABASE_ROUTERS = ["api.multidb.FailClosedDatabaseRouter"]
 
 # Cache for the dashboard v2 aggregations (expensive rankings).
 # LocMemCache is the Django default; keep it per-process safe and cheap.
@@ -114,7 +235,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "api.authentication.FilialeAwareJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",

@@ -263,9 +263,12 @@ class DashboardV2Service:
         return by_source.get(source) or by_source["pointage"]
 
     @staticmethod
-    def _pointage_base(code_filiale=None, date_debut=None, date_fin=None, code_famille=None):
+    def _pointage_base(code_filiale=None, date_debut=None, date_fin=None, code_famille=None, using=None):
         """Canonical, un-branched ``Pointage`` queryset for the v2 dashboard."""
-        qs = Pointage.objects.filter(
+        qs = Pointage.objects.all()
+        if using:
+            qs = qs.using(using)
+        qs = qs.filter(
             mmaa__range=(date_debut, date_fin),
             est_bloque=False,
         )
@@ -450,7 +453,7 @@ class DashboardV2Service:
     # Situations / parc
     # ------------------------------------------------------------------
     @staticmethod
-    def _latest_situations(code_filiale=None, date_fin=None, code_famille=None, include_inactive=False):
+    def _latest_situations(code_filiale=None, date_fin=None, code_famille=None, include_inactive=False, using=None):
         """Latest situation of every *material* (not every affectation) at ``date_fin``.
 
         The window is partitioned by ``affectation_id__code_materiel`` so a
@@ -462,7 +465,10 @@ class DashboardV2Service:
         in 06, 07, 08 or libelle 'NON FOURNIE'. Pass ``include_inactive=True``
         to bypass this filter (used for raw situation counts).
         """
-        situations = Situation_Materiel.objects.filter(
+        situations = Situation_Materiel.objects.all()
+        if using:
+            situations = situations.using(using)
+        situations = situations.filter(
             date_situation__date__lte=date_fin,
             est_bloque=False,
         )
@@ -492,7 +498,7 @@ class DashboardV2Service:
         return qs
 
     @staticmethod
-    def _situation_total(code_filiale=None, date_fin=None, code_famille=None):
+    def _situation_total(code_filiale=None, date_fin=None, code_famille=None, using=None):
         """Number of distinct materials carrying a latest situation.
 
         Published as ``globalKpis.situation_total`` so the UI can state how many
@@ -504,7 +510,7 @@ class DashboardV2Service:
         """
         return (
             DashboardV2Service._latest_situations(
-                code_filiale, date_fin, code_famille, include_inactive=False
+                code_filiale, date_fin, code_famille, include_inactive=False, using=using
             ).aggregate(total=Count("affectation_id__code_materiel", distinct=True))[
                 "total"
             ]
@@ -533,7 +539,7 @@ class DashboardV2Service:
         return "autres"
 
     @staticmethod
-    def _situation_counts(code_filiale=None, date_fin=None, code_famille=None):
+    def _situation_counts(code_filiale=None, date_fin=None, code_famille=None, using=None):
         """Count the latest situation of every material by bucket.
 
         ``en_reparation`` is returned here as well (the overview surfaces it
@@ -544,7 +550,7 @@ class DashboardV2Service:
         in 06, 07, 08 or libelle 'NON FOURNIE'.
         """
         counts = {key: 0 for key in _SITUATION_KEYS}
-        latest = DashboardV2Service._latest_situations(code_filiale, date_fin, code_famille)
+        latest = DashboardV2Service._latest_situations(code_filiale, date_fin, code_famille, using=using)
 
         for row in latest.values(
             "type_situation_id__code_type_affectation__code_type_affectation",
@@ -556,8 +562,10 @@ class DashboardV2Service:
         return counts
 
     @staticmethod
-    def _parc(code_filiale=None, code_famille=None, est_bloque=False, date_fin=None):
+    def _parc(code_filiale=None, code_famille=None, est_bloque=False, date_fin=None, using=None):
         qs = Grand_Materiel.objects.all()
+        if using:
+            qs = qs.using(using)
         if not est_bloque:
             qs = qs.filter(est_bloque=False)
         if code_filiale:
@@ -584,12 +592,15 @@ class DashboardV2Service:
         return qs
 
     @staticmethod
-    def _parc_by_filiale(code_famille=None, date_fin=None):
+    def _parc_by_filiale(code_famille=None, date_fin=None, using=None):
         """Count materiel per filiale (via affectation filiale) when no filiale filter."""
         from django.db.models import OuterRef, Subquery, Count, F
         from api.models import Situation_Materiel
 
-        qs = Grand_Materiel.objects.filter(est_bloque=False)
+        qs = Grand_Materiel.objects.all()
+        if using:
+            qs = qs.using(using)
+        qs = qs.filter(est_bloque=False)
         if code_famille:
             qs = qs.filter(
                 code_sous_famille_materiel__code_famille_materiel__code_famille=code_famille
@@ -652,7 +663,7 @@ class DashboardV2Service:
         )
 
     @staticmethod
-    def _situation_distribution(code_filiale=None, date_fin=None, code_famille=None):
+    def _situation_distribution(code_filiale=None, date_fin=None, code_famille=None, using=None):
         """Latest situation of every material, one slice per situation bucket.
 
         The slices come from ``_situation_bucket``, the SAME classifier the KPI
@@ -676,7 +687,7 @@ class DashboardV2Service:
           réparation" both under code ``04``). Grouping by bucket sidesteps that
           entirely: the slice label comes from the bucket, not from the row.
         """
-        counts = DashboardV2Service._situation_counts(code_filiale, date_fin, code_famille)
+        counts = DashboardV2Service._situation_counts(code_filiale, date_fin, code_famille, using=using)
         return [
             {
                 "code_type_situation": _SITUATION_DONUT_CODES[bucket],
@@ -688,7 +699,7 @@ class DashboardV2Service:
         ]
 
     @staticmethod
-    def _regularisation(code_filiale=None, date_debut=None, date_fin=None, code_famille=None):
+    def _regularisation(code_filiale=None, date_debut=None, date_fin=None, code_famille=None, using=None):
         """Regularisation amounts, optionally narrowed to a famille.
 
         ``Regularisation_GM`` hangs off ``Site`` only — there is no
@@ -697,7 +708,10 @@ class DashboardV2Service:
         materiel of the famille (via ``Affectation_Materiel``), which matches
         the v1 service, where regularisation is only narrowed by ``code_filiale``.
         """
-        qs = Regularisation_GM.objects.filter(
+        qs = Regularisation_GM.objects.all()
+        if using:
+            qs = qs.using(using)
+        qs = qs.filter(
             mmaa__range=(date_debut, date_fin),
             est_bloque=False,
         )
@@ -744,19 +758,19 @@ class DashboardV2Service:
     # Public API
     # ------------------------------------------------------------------
     @staticmethod
-    def get_overview(code_filiale=None, date_debut=None, date_fin=None, code_famille=None):
+    def get_overview(code_filiale=None, date_debut=None, date_fin=None, code_famille=None, using=None):
         date_debut, date_fin = DashboardV2Service._resolve_range(date_debut, date_fin)
 
-        counts = DashboardV2Service._situation_counts(code_filiale, date_fin, code_famille)
+        counts = DashboardV2Service._situation_counts(code_filiale, date_fin, code_famille, using=using)
         pointages = DashboardV2Service._pointage_base(
-            code_filiale, date_debut, date_fin, code_famille
+            code_filiale, date_debut, date_fin, code_famille, using=using
         )
         pointage_agg = pointages.aggregate(**DashboardV2Service._pointage_aggregates())
         reg_total = DashboardV2Service._regularisation(
-            code_filiale, date_debut, date_fin, code_famille
+            code_filiale, date_debut, date_fin, code_famille, using=using
         ).aggregate(total=_sum_montant("montant_regularisation"))["total"]
 
-        parc = DashboardV2Service._parc(code_filiale, code_famille, date_fin=date_fin)
+        parc = DashboardV2Service._parc(code_filiale, code_famille, date_fin=date_fin, using=using)
         # True elapsed years (not a year-number difference) measured against
         # `date_fin`, and materials acquired *after* the period are excluded
         # (they would otherwise drag the average down with a negative age).
@@ -787,12 +801,12 @@ class DashboardV2Service:
         # Filiale distribution (only when no filiale filter is applied)
         filiale_distribution = []
         if not code_filiale:
-            filiale_distribution = DashboardV2Service._parc_by_filiale(code_famille, date_fin)
+            filiale_distribution = DashboardV2Service._parc_by_filiale(code_famille, date_fin, using=using)
 
         global_kpis = {
             "parc_total": parc_total,
             "situation_total": DashboardV2Service._situation_total(
-                code_filiale, date_fin, code_famille
+                code_filiale, date_fin, code_famille, using=using
             ),
             "en_service": counts["en_service"],
             "en_chomage": counts["en_chomage"],
@@ -888,10 +902,10 @@ class DashboardV2Service:
         }
 
     @staticmethod
-    def get_situation(code_filiale=None, date_debut=None, date_fin=None, code_famille=None):
+    def get_situation(code_filiale=None, date_debut=None, date_fin=None, code_famille=None, using=None):
         date_debut, date_fin = DashboardV2Service._resolve_range(date_debut, date_fin)
         pointages = DashboardV2Service._pointage_base(
-            code_filiale, date_debut, date_fin, code_famille
+            code_filiale, date_debut, date_fin, code_famille, using=using
         )
 
         pointage_evolution = [
@@ -942,7 +956,7 @@ class DashboardV2Service:
 
         return {
             "situationDistribution": DashboardV2Service._situation_distribution(
-                code_filiale, date_fin, code_famille
+                code_filiale, date_fin, code_famille, using=using
             ),
             "pointageEvolution": pointage_evolution,
             "familleDistribution": famille_distribution,
@@ -950,22 +964,22 @@ class DashboardV2Service:
 
     @staticmethod
     def get_disponibilite(
-        code_filiale=None, date_debut=None, date_fin=None, code_famille=None, niveau=NIVEAU_DEFAUT
+        code_filiale=None, date_debut=None, date_fin=None, code_famille=None, niveau=NIVEAU_DEFAUT, using=None
     ):
         date_debut, date_fin = DashboardV2Service._resolve_range(date_debut, date_fin)
         pointages = DashboardV2Service._pointage_base(
-            code_filiale, date_debut, date_fin, code_famille
+            code_filiale, date_debut, date_fin, code_famille, using=using
         )
         evolution, breakdown = DashboardV2Service._ratio_series(pointages, niveau)
         return {"evolution": evolution, "breakdown": breakdown}
 
     @staticmethod
     def get_maintenance(
-        code_filiale=None, date_debut=None, date_fin=None, code_famille=None, niveau=NIVEAU_DEFAUT
+        code_filiale=None, date_debut=None, date_fin=None, code_famille=None, niveau=NIVEAU_DEFAUT, using=None
     ):
         date_debut, date_fin = DashboardV2Service._resolve_range(date_debut, date_fin)
         pointages = DashboardV2Service._pointage_base(
-            code_filiale, date_debut, date_fin, code_famille
+            code_filiale, date_debut, date_fin, code_famille, using=using
         )
 
         # MTBF / MTTR / CoutPanne: one `.annotate()` pass each (Sum + Count with a
@@ -1157,11 +1171,11 @@ class DashboardV2Service:
 
     @staticmethod
     def get_rendement(
-        code_filiale=None, date_debut=None, date_fin=None, code_famille=None, niveau=NIVEAU_DEFAUT
+        code_filiale=None, date_debut=None, date_fin=None, code_famille=None, niveau=NIVEAU_DEFAUT, using=None
     ):
         date_debut, date_fin = DashboardV2Service._resolve_range(date_debut, date_fin)
         pointages = DashboardV2Service._pointage_base(
-            code_filiale, date_debut, date_fin, code_famille
+            code_filiale, date_debut, date_fin, code_famille, using=using
         )
 
         # ONE query feeds the whole endpoint: the rows are grouped by
@@ -1183,11 +1197,11 @@ class DashboardV2Service:
 
     @staticmethod
     def get_finances(
-        code_filiale=None, date_debut=None, date_fin=None, code_famille=None, niveau=NIVEAU_DEFAUT
+        code_filiale=None, date_debut=None, date_fin=None, code_famille=None, niveau=NIVEAU_DEFAUT, using=None
     ):
         date_debut, date_fin = DashboardV2Service._resolve_range(date_debut, date_fin)
         pointages = DashboardV2Service._pointage_base(
-            code_filiale, date_debut, date_fin, code_famille
+            code_filiale, date_debut, date_fin, code_famille, using=using
         )
 
         ca_evolution, ca_breakdown = DashboardV2Service._ca_series(pointages, niveau)
@@ -1209,15 +1223,15 @@ class DashboardV2Service:
         )
 
         rentabilite_evolution = DashboardV2Service._rentabilite_evolution(
-            pointages, niveau, code_filiale, date_debut, date_fin, code_famille
+            pointages, niveau, code_filiale, date_debut, date_fin, code_famille, using=using
         )
         rentabilite_ranking = DashboardV2Service._rentabilite_ranking(
-            code_filiale, date_debut, date_fin, code_famille
+            code_filiale, date_debut, date_fin, code_famille, using=using
         )
 
         taux_affectation_evolution, taux_affectation_breakdown, taux_affectation_global = (
             DashboardV2Service._taux_affectation_series(
-                code_filiale, date_debut, date_fin, code_famille, niveau
+                code_filiale, date_debut, date_fin, code_famille, niveau, using=using
             )
         )
 
@@ -1250,7 +1264,7 @@ class DashboardV2Service:
         }
 
     @staticmethod
-    def get_filiale_stats(code_filiale=None, date_debut=None, date_fin=None, code_famille=None):
+    def get_filiale_stats(code_filiale=None, date_debut=None, date_fin=None, code_famille=None, using=None):
         """Per-filiale aggregation of parc, affectations, heures service and pointages.
 
         Single filiale axis: everything is grouped on the material's group
@@ -1274,7 +1288,10 @@ class DashboardV2Service:
         if not filiale_codes:
             return []
 
-        gm_qs = Grand_Materiel.objects.filter(
+        gm_qs = Grand_Materiel.objects.all()
+        if using:
+            gm_qs = gm_qs.using(using)
+        gm_qs = gm_qs.filter(
             code_filiale_g__in=filiale_codes,
             est_bloque=False,
         )
@@ -1286,7 +1303,10 @@ class DashboardV2Service:
         gm_qs = DashboardV2Service._filter_parc_by_type_affectation(gm_qs, date_fin)
         gm_stats = gm_qs.values("code_filiale_g").annotate(totalMateriel=Count("id"))
 
-        aff_qs = Affectation_Materiel.objects.filter(
+        aff_qs = Affectation_Materiel.objects.all()
+        if using:
+            aff_qs = aff_qs.using(using)
+        aff_qs = aff_qs.filter(
             code_materiel__code_filiale_g__in=filiale_codes,
             est_bloque=False,
             date_fin_affectation__isnull=True,
@@ -1302,7 +1322,7 @@ class DashboardV2Service:
         )
 
         pointage_qs = DashboardV2Service._pointage_base(
-            code_filiale, date_debut, date_fin, code_famille
+            code_filiale, date_debut, date_fin, code_famille, using=using
         ).filter(affectation_id__code_materiel__code_filiale_g__in=filiale_codes)
 
         pointage_stats = (
@@ -1496,9 +1516,9 @@ class DashboardV2Service:
         return entities
 
     @staticmethod
-    def _rentabilite_evolution(qs, niveau, code_filiale, date_debut, date_fin, code_famille):
+    def _rentabilite_evolution(qs, niveau, code_filiale, date_debut, date_fin, code_famille, using=None):
         reg_qs = DashboardV2Service._regularisation(
-            code_filiale, date_debut, date_fin, code_famille
+            code_filiale, date_debut, date_fin, code_famille, using=using
         )
         entities = DashboardV2Service._rentabilite_entities(qs, niveau, reg_qs, TruncQuarter)
 
@@ -1521,7 +1541,7 @@ class DashboardV2Service:
         ]
 
     @staticmethod
-    def _rentabilite_ranking(code_filiale, date_debut, date_fin, code_famille):
+    def _rentabilite_ranking(code_filiale, date_debut, date_fin, code_famille, using=None):
         """Ranking par engin, mis en cache 5 min (independant du niveau)."""
         cache_key = "dashboard_v2:rentabilite:%s:%s:%s:%s" % (
             code_filiale or "all",
@@ -1534,10 +1554,10 @@ class DashboardV2Service:
             return cached
 
         pointages = DashboardV2Service._pointage_base(
-            code_filiale, date_debut, date_fin, code_famille
+            code_filiale, date_debut, date_fin, code_famille, using=using
         )
         reg_qs = DashboardV2Service._regularisation(
-            code_filiale, date_debut, date_fin, code_famille
+            code_filiale, date_debut, date_fin, code_famille, using=using
         )
         entities = DashboardV2Service._rentabilite_entities(
             pointages, NIVEAU_DEFAUT, reg_qs, TruncMonth
@@ -1545,12 +1565,14 @@ class DashboardV2Service:
 
         # The ranking is engine-scoped, so the famille / filiale of each code
         # only have to be resolved once (the ranking table renders them).
+        labels_qs = Grand_Materiel.objects.filter(
+            code_materiel__in={code for (_period, code) in entities}
+        )
+        if using:
+            labels_qs = labels_qs.using(using)
         labels = {
             row["code_materiel"]: row
-            for row in Grand_Materiel.objects.filter(
-                code_materiel__in={code for (_period, code) in entities}
-            )
-            .values(
+            for row in labels_qs.values(
                 "code_materiel",
                 "code_sous_famille_materiel__code_famille_materiel__libelle_famille",
                 "code_filiale_g__libelle_filiale",
@@ -1598,7 +1620,7 @@ class DashboardV2Service:
         return ranking
 
     @staticmethod
-    def _taux_affectation_series(code_filiale, date_debut, date_fin, code_famille, niveau):
+    def _taux_affectation_series(code_filiale, date_debut, date_fin, code_famille, niveau, using=None):
         """Return ``(evolution, breakdown, global)`` for the affectation rate.
 
         * ``evolution`` is a FLOW: the affectations *created* in the month
@@ -1612,7 +1634,10 @@ class DashboardV2Service:
         # `_pointage_base` and `_parc` — `code_filiale_mere` is the booking
         # subsidiary of the affectation, a different axis.
         def _affectations():
-            qs = Affectation_Materiel.objects.filter(est_bloque=False)
+            qs = Affectation_Materiel.objects.all()
+            if using:
+                qs = qs.using(using)
+            qs = qs.filter(est_bloque=False)
             if code_filiale:
                 qs = qs.filter(code_materiel__code_filiale_g=code_filiale)
             if code_famille:
@@ -1623,7 +1648,7 @@ class DashboardV2Service:
 
         active = _affectations().filter(date_fin_affectation__isnull=True)
 
-        parc = DashboardV2Service._parc(code_filiale, code_famille, date_fin=date_fin)
+        parc = DashboardV2Service._parc(code_filiale, code_famille, date_fin=date_fin, using=using)
         parc_total = parc.count()
         engins_affectes_global = (
             active.filter(code_materiel__in=parc.values("code_materiel"))
@@ -1715,12 +1740,15 @@ class DashboardV2Service:
         return evolution, breakdown, global_row
 
     @staticmethod
-    def get_filiales():
+    def get_filiales(allowed_codes=None):
+        qs = Filiale.objects.filter(est_bloque=False).values(
+            "code_filiale", "libelle_filiale"
+        ).order_by("code_filiale")
+        if allowed_codes:
+            qs = qs.filter(code_filiale__in=allowed_codes)
         return [
             {"value": row["code_filiale"], "label": row["libelle_filiale"]}
-            for row in Filiale.objects.filter(est_bloque=False)
-            .values("code_filiale", "libelle_filiale")
-            .order_by("code_filiale")
+            for row in qs
         ]
 
     @staticmethod
@@ -1731,3 +1759,315 @@ class DashboardV2Service:
             .values("code_famille", "libelle_famille")
             .order_by("code_famille")
         ]
+
+    # ------------------------------------------------------------------
+    # Cross-filiale merge helpers
+    # ------------------------------------------------------------------
+    # When an admin (superuser or administration.all_filiales) requests the
+    # dashboard with no ``code_filiale`` filter, the FailClosedDatabaseRouter
+    # has no filiale to route to and falls back to the central ``default``
+    # database — which has empty affiliate-scoped tables. The Analyse
+    # Quantitative views already handle this by looping over every filiale
+    # database and merging the per-filiale results in Python. The v2
+    # dashboard did not, so admin users saw zero data on every screen.
+    #
+    # These helpers expose that same 3-branch pattern: the public service
+    # methods accept an optional ``using`` alias. When it is set they query
+    # that single affiliate database. When it is ``None`` the view decides
+    # whether to call them once (scoped user, router resolves) or N times
+    # (admin, loop + merge).
+
+    @staticmethod
+    def _merge_evolution(series_list):
+        """Merge per-filiale evolution arrays into one.
+
+        The time axis key is detected from the first row (``mmaa`` for the
+        pointage/ratio families, ``quarter`` for rentabilite) so the merged
+        array keeps the same shape as a single-filiale response.
+        """
+        merged = {}
+        time_key = None
+        ratio_fields = {"disponibilite", "tmad", "tam", "tip", "taux_utilisation",
+                        "taux_chomage", "rendement"}
+        for series in series_list:
+            for row in series:
+                if time_key is None:
+                    time_key = "quarter" if "quarter" in row else "mmaa"
+                period = row.get(time_key)
+                bucket = merged.setdefault(period, {})
+                for key, value in row.items():
+                    if key == time_key or key in ratio_fields:
+                        continue
+                    bucket[key] = bucket.get(key, 0) + (
+                        float(value) if isinstance(value, (int, float)) else value
+                    )
+        result = []
+        for period, bucket in sorted(merged.items(), key=lambda kv: (kv[0] is None, kv[0])):
+            ratios = DashboardV2Service._ratios(
+                bucket.get("potentiel", 0),
+                bucket.get("heures_service", 0),
+                bucket.get("heures_chomage", 0),
+                bucket.get("heures_panne", 0),
+            )
+            for rf in ratio_fields:
+                if rf in ratios:
+                    bucket[rf] = ratios[rf]
+            result.append({time_key: period, **bucket})
+        return result
+
+    @staticmethod
+    def _merge_breakdown(breakdown_list):
+        """Merge per-filiale breakdown arrays, keyed by code."""
+        merged = {}
+        ratio_fields = {"disponibilite", "tmad", "tam", "tip", "taux_utilisation",
+                        "taux_chomage", "rendement"}
+        for breakdown in breakdown_list:
+            for row in breakdown:
+                code = row.get("code")
+                bucket = merged.setdefault(
+                    code,
+                    {"libelle": row.get("libelle"), **{k: 0 for k in row if k not in ("code", "libelle") and k not in ratio_fields}},
+                )
+                if bucket["libelle"] is None:
+                    bucket["libelle"] = row.get("libelle")
+                for key, value in row.items():
+                    if key in ("code", "libelle") or key in ratio_fields:
+                        continue
+                    bucket[key] = bucket.get(key, 0) + (
+                        float(value) if isinstance(value, (int, float)) and value is not None else (0 if value is None else value)
+                    )
+        result = []
+        for code, bucket in sorted(merged.items(), key=lambda kv: (kv[0] is None, kv[0])):
+            ratios = DashboardV2Service._ratios(
+                bucket.get("potentiel", 0),
+                bucket.get("heures_service", 0),
+                bucket.get("heures_chomage", 0),
+                bucket.get("heures_panne", 0),
+            )
+            for rf in ratio_fields:
+                if rf in ratios:
+                    bucket[rf] = ratios[rf]
+            result.append({"code": code, **bucket})
+        return result
+
+    @staticmethod
+    def _merge_dict_sum(dict_list, numeric_keys=None):
+        """Sum a list of flat dicts (e.g. situation counts, pointage aggregates)."""
+        merged = {}
+        for d in dict_list:
+            for key, value in d.items():
+                if numeric_keys is not None and key not in numeric_keys:
+                    merged[key] = value
+                    continue
+                merged[key] = merged.get(key, 0) + (
+                    float(value) if isinstance(value, (int, float)) else value
+                )
+        return merged
+
+    @staticmethod
+    def _merge_financial_kpis(dict_list):
+        """Sum financial KPI dicts, preserving signed values."""
+        merged = {}
+        for d in dict_list:
+            for key, value in d.items():
+                if key == "ecartCible":
+                    continue
+                merged[key] = merged.get(key, 0) + (
+                    float(value) if isinstance(value, (int, float)) else value
+                )
+        ca_potentiel = merged.get("caPotentiel", 0)
+        ca_realise = merged.get("caRealise", 0)
+        merged["ecartCible"] = round(
+            ((ca_potentiel - ca_realise) / ca_potentiel * 100) if ca_potentiel > 0 else 0.0, 1
+        )
+        return merged
+
+    @staticmethod
+    def _merge_filiale_distribution(distribution_list):
+        """Merge per-filiale distribution lists, keyed by code_filiale."""
+        merged = {}
+        for distribution in distribution_list:
+            for row in distribution:
+                code = row.get("code_filiale")
+                bucket = merged.setdefault(
+                    code,
+                    {
+                        "code_filiale": code,
+                        "libelle_filiale": row.get("libelle_filiale"),
+                        "totalMateriel": 0,
+                        "totalAffectations": 0,
+                        "totalHeuresService": 0.0,
+                        "totalPointages": 0,
+                    },
+                )
+                if bucket["libelle_filiale"] is None:
+                    bucket["libelle_filiale"] = row.get("libelle_filiale")
+                bucket["totalMateriel"] += row.get("totalMateriel", 0)
+                bucket["totalAffectations"] += row.get("totalAffectations", 0)
+                bucket["totalHeuresService"] += float(row.get("totalHeuresService", 0))
+                bucket["totalPointages"] += row.get("totalPointages", 0)
+        return sorted(
+            merged.values(), key=lambda r: (r["code_filiale"] is None, r["code_filiale"])
+        )
+
+    @staticmethod
+    def _merge_filiale_stats(stats_list):
+        """Merge per-filiale stats lists, keyed by code_filiale."""
+        merged = {}
+        for stats in stats_list:
+            for row in stats:
+                code = row.get("code_filiale")
+                bucket = merged.setdefault(
+                    code,
+                    {
+                        "code_filiale": code,
+                        "libelle_filiale": row.get("libelle_filiale"),
+                        "totalMateriel": 0,
+                        "totalAffectations": 0,
+                        "totalHeuresService": 0.0,
+                        "totalPointages": 0,
+                    },
+                )
+                if bucket["libelle_filiale"] is None:
+                    bucket["libelle_filiale"] = row.get("libelle_filiale")
+                bucket["totalMateriel"] += row.get("totalMateriel", 0)
+                bucket["totalAffectations"] += row.get("totalAffectations", 0)
+                bucket["totalHeuresService"] += float(row.get("totalHeuresService", 0))
+                bucket["totalPointages"] += row.get("totalPointages", 0)
+        return sorted(
+            merged.values(), key=lambda r: (r["code_filiale"] is None, r["code_filiale"])
+        )
+
+    @staticmethod
+    def _merge_rentabilite_ranking(rankings):
+        """Merge per-filiale rentabilite rankings, keyed by code_materiel."""
+        merged = {}
+        for ranking in rankings:
+            for row in ranking:
+                code = row.get("code_materiel")
+                bucket = merged.setdefault(
+                    code,
+                    {
+                        "code_materiel": code,
+                        "designation": row.get("designation"),
+                        "libelle_famille": row.get("libelle_famille"),
+                        "libelle_filiale": row.get("libelle_filiale"),
+                        "chiffre_affaires": 0.0,
+                        "regularisation": 0.0,
+                    },
+                )
+                if bucket["designation"] is None:
+                    bucket["designation"] = row.get("designation")
+                if bucket["libelle_famille"] is None:
+                    bucket["libelle_famille"] = row.get("libelle_famille")
+                if bucket["libelle_filiale"] is None:
+                    bucket["libelle_filiale"] = row.get("libelle_filiale")
+                bucket["chiffre_affaires"] += float(row.get("chiffre_affaires", 0))
+                bucket["regularisation"] += float(row.get("regularisation", 0))
+
+        result = [
+            {
+                "code_materiel": item["code_materiel"],
+                "designation": item["designation"] or item["code_materiel"],
+                "libelle_famille": item["libelle_famille"] or "—",
+                "libelle_filiale": item["libelle_filiale"] or "—",
+                "chiffre_affaires": round(item["chiffre_affaires"], 2),
+                "regularisation": round(item["regularisation"], 2),
+                "marge": round(item["chiffre_affaires"] - item["regularisation"], 2),
+            }
+            for item in merged.values()
+        ]
+        result.sort(key=lambda row: row["marge"], reverse=True)
+        return result
+
+    @staticmethod
+    def _merge_global_kpis(dict_list):
+        """Sum globalKpis dicts, preserving non-numeric fields."""
+        merged = {}
+        for d in dict_list:
+            for key, value in d.items():
+                if isinstance(value, bool):
+                    merged[key] = value
+                elif isinstance(value, (int, float)):
+                    merged[key] = merged.get(key, 0) + value
+                else:
+                    merged[key] = value
+        return merged
+
+    @staticmethod
+    def _merge_maintenance_kpis(dict_list):
+        """Sum maintenanceKpis dicts (ratios are fleet-level, not additive)."""
+        merged = {}
+        ratio_keys = {"tamd", "tam", "tip", "taux_service", "taux_chomage",
+                      "taux_panne", "disponibilite"}
+        for d in dict_list:
+            for key, value in d.items():
+                if key in ratio_keys:
+                    continue
+                if isinstance(value, (int, float)):
+                    merged[key] = merged.get(key, 0) + value
+                else:
+                    merged[key] = value
+        ratios = DashboardV2Service._ratios(
+            merged.get("potentiel_total", 0),
+            merged.get("heures_service", 0),
+            merged.get("heures_chomage", 0),
+            merged.get("heures_panne", 0),
+        )
+        merged["tamd"] = ratios["tmad"]
+        merged["tam"] = ratios["tam"]
+        merged["tip"] = ratios["tip"]
+        merged["taux_service"] = ratios["taux_utilisation"]
+        merged["taux_chomage"] = ratios["taux_chomage"]
+        merged["taux_panne"] = ratios["tip"]
+        merged["disponibilite"] = ratios["disponibilite"]
+        return merged
+
+    @staticmethod
+    def _merge_situation_distribution(distribution_list):
+        """Merge per-filiale situation distribution lists, keyed by code_type_situation."""
+        merged = {}
+        for distribution in distribution_list:
+            for row in distribution:
+                code = row.get("code_type_situation")
+                bucket = merged.setdefault(
+                    code,
+                    {
+                        "code_type_situation": code,
+                        "libelle_type_situation": row.get("libelle_type_situation"),
+                        "count": 0,
+                    },
+                )
+                bucket["count"] += row.get("count", 0)
+        return sorted(
+            merged.values(),
+            key=lambda r: (r["code_type_situation"] is None, r["code_type_situation"]),
+        )
+
+    @staticmethod
+    def _merge_famille_distribution(distribution_list):
+        """Merge per-filiale famille distribution lists, keyed by (code_famille, code_sous_famille)."""
+        merged = {}
+        for distribution in distribution_list:
+            for row in distribution:
+                key = (row.get("code_famille"), row.get("code_sous_famille"))
+                bucket = merged.setdefault(
+                    key,
+                    {
+                        "code_famille": row.get("code_famille"),
+                        "libelle_famille": row.get("libelle_famille"),
+                        "code_sous_famille": row.get("code_sous_famille"),
+                        "libelle_sous_famille": row.get("libelle_sous_famille"),
+                        "count": 0,
+                        "heures_service": 0.0,
+                        "heures_chomage": 0.0,
+                        "heures_panne": 0.0,
+                        "potentiel": 0.0,
+                    },
+                )
+                bucket["count"] += row.get("count", 0)
+                bucket["heures_service"] += float(row.get("heures_service", 0))
+                bucket["heures_chomage"] += float(row.get("heures_chomage", 0))
+                bucket["heures_panne"] += float(row.get("heures_panne", 0))
+                bucket["potentiel"] += float(row.get("potentiel", 0))
+        return sorted(merged.values(), key=lambda r: (r["code_famille"] is None, r["code_famille"]))

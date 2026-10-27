@@ -1,6 +1,7 @@
 ﻿from django.db import IntegrityError, transaction
 
 from api.models import Marque_Materiel
+from api.multidb import get_filiale_db
 
 from ..validation_cache import ValidationCache
 
@@ -64,6 +65,8 @@ class MarqueCsvImporter:
         summary = payload.get("summary", {})
         filename = payload.get("filename", "")
 
+        filiale_db = get_filiale_db(filiale)
+
         # -----------------------------------------------------
         # 2. Build Django objects
         #
@@ -105,9 +108,9 @@ class MarqueCsvImporter:
 
         try:
 
-            with transaction.atomic():
+            with transaction.atomic(using=filiale_db):
 
-                Marque_Materiel.objects.bulk_create(
+                Marque_Materiel.objects.using(filiale_db).bulk_create(
                     objects,
                     batch_size=BATCH_SIZE,
                 )

@@ -8,6 +8,7 @@ from api.models import (
     Type_Marque,
     Filiale,
 )
+from api.multidb import get_filiale_db
 
 from .csv_normalizer import CsvNormalizer
 from .validation import CsvSchema, ValidationReport
@@ -29,6 +30,7 @@ class GMCsvValidator:
         self.delimiter = delimiter
         self.encoding = encoding
         self.filiale = filiale
+        self.filiale_db = get_filiale_db(filiale)
 
         # ---------------------------------------------------------
         # Normalize the uploaded CSV into the schema order.
@@ -70,14 +72,14 @@ class GMCsvValidator:
         """
 
         self.sous_familles = set(
-            Sous_Famille_Materiel.objects.values_list(
+            Sous_Famille_Materiel.objects.using(self.filiale_db).values_list(
                 "code_sous_famille",
                 flat=True,
             )
         )
 
         self.type_marques = set(
-            Type_Marque.objects.values_list(
+            Type_Marque.objects.using(self.filiale_db).values_list(
                 "code_type_marque",
                 flat=True,
             )
@@ -91,7 +93,7 @@ class GMCsvValidator:
         )
 
         self.existing_materials = set(
-            Grand_Materiel.objects.values_list(
+            Grand_Materiel.objects.using(self.filiale_db).values_list(
                 "code_materiel",
                 flat=True,
             )

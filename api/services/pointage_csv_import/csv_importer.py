@@ -1,7 +1,7 @@
 ﻿from django.db import IntegrityError, transaction
 
 from api.models import Pointage
-
+from api.multidb import get_filiale_db
 from ..validation_cache import ValidationCache
 
 
@@ -58,6 +58,8 @@ class PointageCsvImporter:
         summary = payload.get("summary", {})
         filename = payload.get("filename", "")
 
+        filiale_db = get_filiale_db(filiale)
+
         # -----------------------------------------------------
         # 2. Build Pointage objects
         #
@@ -94,14 +96,14 @@ class PointageCsvImporter:
             }
 
         # -----------------------------------------------------
-        # 4. Database import
+        # 4. Database import (target filiale DB only)
         # -----------------------------------------------------
 
         try:
 
-            with transaction.atomic():
+            with transaction.atomic(using=filiale_db):
 
-                Pointage.objects.bulk_create(
+                Pointage.objects.using(filiale_db).bulk_create(
                     objects,
                     batch_size=BATCH_SIZE,
                 )

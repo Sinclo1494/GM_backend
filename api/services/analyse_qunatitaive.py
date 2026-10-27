@@ -33,6 +33,7 @@ class AnalyseQuantitative:
         date_debut,
         date_fin,
         include_pending=False,
+        using=None,
     ):
         """Situation of every material *in force* during ``[date_debut, date_fin]``.
 
@@ -67,9 +68,14 @@ class AnalyseQuantitative:
         filter on the annotated `code_type_affectation` is folded into the inner
         WHERE of the window query and would run before `ROW_NUMBER()`.
         """
-        situations = Situation_Materiel.objects.filter(
+        situations = Situation_Materiel.objects.all()
+        if using:
+            situations = situations.using(using)
+        situations = situations.filter(
             date_situation__date__lte=date_fin,
         )
+        if not include_pending:
+            situations = situations.filter(affectation_id__status="CONFIRMED")
 
         situations = situations.annotate(
             code_materiel=F("affectation_id__code_materiel__code_materiel"),
@@ -101,9 +107,13 @@ class AnalyseQuantitative:
             ),
         )
 
-        situations = situations.filter(
-            code_filiale=code_filiale,
-        )
+        # No subsidiary filter when ``code_filiale`` is None: this is the
+        # cross-filiale merge, where every affiliate database is queried and
+        # the results are concatenated.
+        if code_filiale:
+            situations = situations.filter(
+                code_filiale=code_filiale,
+            )
 
         # `next_date` chains the situations of a *single* affectation: a material
         # affected twice (....001 then ....002) must not let a situation of the
@@ -282,15 +292,19 @@ class AnalyseQuantitative:
                 row["immobilise"]["autre"] += 1
 
         if include_pending:
-            pending_qs = Grand_Materiel.objects.filter(
+            pending_qs = Grand_Materiel.objects.all()
+            if using:
+                pending_qs = pending_qs.using(using)
+            pending_qs = pending_qs.filter(
                 status='PENDING',
-                code_filiale_g=code_filiale,
                 code_sous_famille_materiel__isnull=False,
             ).select_related(
                 'code_sous_famille_materiel',
                 'code_sous_famille_materiel__code_famille_materiel',
                 'code_sous_famille_materiel__code_famille_materiel__code_categorie_gm',
             )
+            if code_filiale:
+                pending_qs = pending_qs.filter(code_filiale_g=code_filiale)
 
             for gm in pending_qs:
                 sf = gm.code_sous_famille_materiel
@@ -353,12 +367,14 @@ class AnalyseQuantitativeResume:
         date_debut,
         date_fin,
         include_pending=False,
+        using=None,
     ):
         rows = AnalyseQuantitative.get_situations(
             code_filiale,
             date_debut,
             date_fin,
             include_pending=include_pending,
+            using=using,
         )
 
         nbr_total = 0

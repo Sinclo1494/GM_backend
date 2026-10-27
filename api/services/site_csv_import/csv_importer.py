@@ -3,6 +3,7 @@
 from api.models import (
     Site,
 )
+from api.multidb import get_filiale_db
 
 from ..validation_cache import ValidationCache
 
@@ -66,6 +67,8 @@ class SiteCsvImporter:
         summary = payload.get("summary", {})
         filename = payload.get("filename", "")
 
+        filiale_db = get_filiale_db(filiale)
+
         # -----------------------------------------------------
         # 2. Build Django objects
         # -----------------------------------------------------
@@ -104,9 +107,9 @@ class SiteCsvImporter:
 
         try:
 
-            with transaction.atomic():
+            with transaction.atomic(using=filiale_db):
 
-                Site.objects.bulk_create(
+                Site.objects.using(filiale_db).bulk_create(
                     objects,
                     batch_size=BATCH_SIZE,
                 )

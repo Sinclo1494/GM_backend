@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from api.models import (
     Categorie_GM,
 )
+from api.multidb import get_filiale_db
 
 from .csv_normalizer import CsvNormalizer
 from .validation import CsvSchema, ValidationReport
@@ -17,6 +18,7 @@ class CategorieGMCsvValidator:
         uploaded_file,
         schema: CsvSchema,
         mapping,
+        filiale,
         delimiter=";",
         encoding="utf-8",
     ):
@@ -24,6 +26,8 @@ class CategorieGMCsvValidator:
         self.schema = schema
         self.delimiter = delimiter
         self.encoding = encoding
+        self.filiale = filiale
+        self.filiale_db = get_filiale_db(filiale)
 
         self.file = CsvNormalizer.normalize(
             uploaded_file=uploaded_file,
@@ -37,7 +41,7 @@ class CategorieGMCsvValidator:
     def load_cache(self):
 
         self.existing_categories = set(
-            Categorie_GM.objects.values_list(
+            Categorie_GM.objects.using(self.filiale_db).values_list(
                 "code_categorie",
                 flat=True,
             )
