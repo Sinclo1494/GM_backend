@@ -1,4 +1,4 @@
-﻿from rest_framework import permissions
+from rest_framework import permissions
 
 ALL_FILIALES_PERMISSION = "administration.all_filiales"
 

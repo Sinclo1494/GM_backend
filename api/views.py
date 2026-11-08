@@ -6906,7 +6906,7 @@ from rest_framework.permissions import IsAuthenticated
 
 
 class MgtDashboardDecadaireView(APIView):
-    permission_classes = [IsAuthenticated, ExternalServiceDashboardPermission]
+    permission_classes = [IsAuthenticated, ExternalServiceDashboardPermission("analyse.mgt_dashboard")]
     def get(self, request):
         user = request.user
         filiale = request.query_params.get('filiale')
@@ -6928,7 +6928,7 @@ class MgtDashboardDecadaireView(APIView):
         return Response(data)
 
 class MgtDashboardMensuelView(APIView):
-    permission_classes = [IsAuthenticated, ExternalServiceDashboardPermission]
+    permission_classes = [IsAuthenticated, ExternalServiceDashboardPermission("analyse.mgt_dashboard")]
     def get(self, request):
         user = request.user
         filiale = request.query_params.get('filiale')
@@ -6950,7 +6950,7 @@ class MgtDashboardMensuelView(APIView):
 
 
 class MgtDashboardDecadaireRecapView(APIView):
-    permission_classes = [IsAuthenticated, ExternalServiceDashboardPermission]
+    permission_classes = [IsAuthenticated, ExternalServiceDashboardPermission("analyse.mgt_dashboard")]
     def get(self, request):
         user = request.user
         filiale = request.query_params.get('filiale')
@@ -6971,7 +6971,7 @@ class MgtDashboardDecadaireRecapView(APIView):
 
 
 class MgtDashboardMensuelRecapView(APIView):
-    permission_classes = [IsAuthenticated, ExternalServiceDashboardPermission]
+    permission_classes = [IsAuthenticated, ExternalServiceDashboardPermission("analyse.mgt_dashboard")]
     def get(self, request):
         user = request.user
         filiale = request.query_params.get('filiale')
