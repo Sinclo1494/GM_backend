@@ -22,9 +22,113 @@ from .models import Regularisation_GM
 from .models import Regularisation_Mois_GM2
 from .models import Site
 from .models import UserProfile
+from .models import ExternalServiceClient
 
 User = get_user_model()
 
+
+
+class JournalSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
+
+    def get_user(self, obj):
+        if obj.user:
+            return {"id": obj.user.id, "username": obj.user.username}
+        return None
+
+    class Meta:
+        model = Journal
+        fields = "__all__"
+
+
+class ExternalServiceClientSerializer(serializers.ModelSerializer):
+    allowed_filiales_codes = serializers.SerializerMethodField()
+    created_by_username = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExternalServiceClient
+        fields = [
+            "id",
+            "name",
+            "client_id",
+            "client_secret_hash",
+            "is_active",
+            "created_at",
+            "updated_at",
+            "expires_at",
+            "last_used_at",
+            "created_by",
+            "created_by_username",
+            "allowed_filiales",
+            "allowed_filiales_codes",
+        ]
+        read_only_fields = ["id", "client_secret_hash", "created_at", "updated_at", "last_used_at", "created_by"]
+
+    def get_allowed_filiales_codes(self, obj):
+        return list(obj.allowed_filiales.values_list("code_filiale", flat=True))
+
+    def get_created_by_username(self, obj):
+        return obj.created_by.username if obj.created_by else None
+
+
+class ExternalServiceClientWriteSerializer(serializers.ModelSerializer):
+    client_secret = serializers.CharField(write_only=True, required=True, allow_blank=False)
+    allowed_filiales_codes = serializers.ListField(
+        child=serializers.CharField(), write_only=True, required=False
+    )
+
+    class Meta:
+        model = ExternalServiceClient
+        fields = [
+            "name",
+            "client_id",
+            "client_secret",
+            "is_active",
+            "expires_at",
+            "allowed_filiales_codes",
+        ]
+
+    def create(self, validated_data):
+        from api.services.external_service_credentials import hash_secret
+
+        client_secret = validated_data.pop("client_secret", None)
+        allowed_filiales_codes = validated_data.pop("allowed_filiales_codes", None)
+
+        validated_data["client_secret_hash"] = hash_secret(client_secret)
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            validated_data["created_by"] = request.user
+
+        instance = super().create(validated_data)
+
+        if allowed_filiales_codes:
+            from api.models import Filiale
+
+            filiales = Filiale.objects.filter(code_filiale__in=allowed_filiales_codes)
+            instance.allowed_filiales.set(filiales)
+
+        self.context["client_secret"] = client_secret
+        return instance
+
+    def update(self, instance, validated_data):
+        from api.services.external_service_credentials import hash_secret
+
+        client_secret = validated_data.pop("client_secret", None)
+        allowed_filiales_codes = validated_data.pop("allowed_filiales_codes", None)
+
+        if client_secret:
+            validated_data["client_secret_hash"] = hash_secret(client_secret)
+            self.context["client_secret"] = client_secret
+
+        instance = super().update(instance, validated_data)
+
+        if allowed_filiales_codes is not None:
+            from api.models import Filiale
+
+            filiales = Filiale.objects.filter(code_filiale__in=allowed_filiales_codes)
+            instance.allowed_filiales.set(filiales)
+
+        return instance
 
 
 class JournalSerializer(serializers.ModelSerializer):
@@ -77,6 +181,7 @@ class GrandMaterielSerializer(serializers.ModelSerializer):
         default=None,
         allow_null=True,
     )
+    libelle_site = serializers.CharField(read_only=True, default=None, allow_null=True)
 
     class Meta:
         model = Grand_Materiel

@@ -71,6 +71,13 @@ class AnalyseQuantitative:
         situations = Situation_Materiel.objects.all()
         if using:
             situations = situations.using(using)
+        # Missing dates mean "unbounded": normalise to sentinel values so the
+        # ORM filters and window annotations below keep working instead of
+        # raising "Cannot use None as a query value" (HTTP 500).
+        if date_debut is None:
+            date_debut = date(1900, 1, 1)
+        if date_fin is None:
+            date_fin = date(9999, 12, 31)
         situations = situations.filter(
             date_situation__date__lte=date_fin,
         )

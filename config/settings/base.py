@@ -235,6 +235,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
+        "api.authentication.ExternalServiceJWTAuthentication",
         "api.authentication.FilialeAwareJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (

@@ -1,4 +1,4 @@
-﻿"""
+"""
 URL configuration for config project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
@@ -15,12 +15,14 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from api.views_external_service_auth import ServiceTokenView
 from django.http import JsonResponse
 from django.urls import path, include
 from django.db import connection
 
 from rest_framework import routers
 from api import views
+from api.views import ExternalServiceClientViewSet
 from api.views import (
     pointage_upload_view,
     situation_upload_view,
@@ -69,6 +71,14 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 
+from api.external_analyse_views import (
+    ExternalAnalyseExploitationRecapView,
+    ExternalAnalyseExploitationView,
+    ExternalAnalyseQuantitativeRecapView,
+    ExternalAnalyseQuantitativeView,
+    ExternalJournalMaterielView,
+)
+
 
 router = routers.DefaultRouter()
 router.register(r'grand-materiel', views.GrandMaterielViewSet, 'grand-materiel')
@@ -93,6 +103,7 @@ router.register(r'site', views.SiteViewSet, 'site')
 router.register(r'journal', views.JournalViewSet, 'journal')
 router.register(r'users', views.UserViewSet, 'users')
 router.register(r'notifications', views.NotificationViewSet, 'notifications')
+router.register(r'external-service-clients', views.ExternalServiceClientViewSet, 'external-service-clients')
 
 
 def health_check(request):
@@ -109,6 +120,10 @@ def health_check(request):
 
 
 urlpatterns = [
+    path('api/mgt-dashboard/decadaire/', views.MgtDashboardDecadaireView.as_view(), name='mgt_dashboard_decadaire'),
+    path('api/mgt-dashboard/mensuel/', views.MgtDashboardMensuelView.as_view(), name='mgt_dashboard_mensuel'),
+    path('api/mgt-dashboard/decadaire-recap/', views.MgtDashboardDecadaireRecapView.as_view(), name='mgt_dashboard_decadaire_recap'),
+    path('api/mgt-dashboard/mensuel-recap/', views.MgtDashboardMensuelRecapView.as_view(), name='mgt_dashboard_mensuel_recap'),
     path('admin/', admin.site.urls),
     path('health/', health_check, name='health_check'),
     path('api/', include(router.urls)),
@@ -142,6 +157,12 @@ urlpatterns = [
     path('api/aqtpr/', TP_AQ_resume_API_View.as_view()),
     path('api/aetp/', TP_AE_API_View.as_view()),
     path('api/aetpr/', TP_AE_resume_API_View.as_view()),
+    path('api/external/analyse-quantitative/', ExternalAnalyseQuantitativeView.as_view(), name='external_analyse_quantitative'),
+    path('api/external/analyse-quantitative-recap/', ExternalAnalyseQuantitativeRecapView.as_view(), name='external_analyse_quantitative_recap'),
+    path('api/external/analyse-exploitation/', ExternalAnalyseExploitationView.as_view(), name='external_analyse_exploitation'),
+    path('api/external/analyse-exploitation-recap/', ExternalAnalyseExploitationRecapView.as_view(), name='external_analyse_exploitation_recap'),
+    path('api/external/journal-materiel/', ExternalJournalMaterielView.as_view(), name='external_journal_materiel'),
+    path('api/auth/service-token/', ServiceTokenView.as_view(), name='service_token'),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/dashboard/', DashboardAPIView.as_view(), name='dashboard'),

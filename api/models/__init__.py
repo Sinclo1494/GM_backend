@@ -20,4 +20,5 @@ from .regularisation_mois_gm2 import Regularisation_Mois_GM2
 from .site import Site
 from .journal import Journal
 from .user_profile import UserProfile
+from .external_service_client import ExternalServiceClient
 

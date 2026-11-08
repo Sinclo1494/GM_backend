@@ -61,6 +61,7 @@ Desktop.ini
 .env.local
 .env.*.local
 .env.production
+.env.test.local
 
 # Testing
 .pytest_cache/

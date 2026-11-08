@@ -14,6 +14,10 @@ def can_access_all_filiales(user) -> bool:
     """
     if not user or not getattr(user, "is_authenticated", False):
         return False
+    
+    if getattr(user, "is_external_service", False):
+        return True
+    
     if getattr(user, "is_superuser", False):
         return True
     profile = getattr(user, "profile", None)
@@ -93,22 +97,6 @@ def resolve_filiale_code(user, request=None):
     return None
 
 
-def get_allowed_filiale_codes(user):
-    """
-    Return the list of filiale codes the user may access.
-
-    - Superusers / all_filiales users: every registered filiale code.
-    - Otherwise: just the user's own filiale code (or [] if none).
-    """
-    if can_access_all_filiales(user):
-        from django.conf import settings
-        return list(settings.FILIALE_DATABASES.keys())
-    profile = getattr(user, "profile", None)
-    if profile is None or profile.filiale is None:
-        return []
-    return [profile.filiale.code_filiale]
-
-
 def can_include_pending_data(user) -> bool:
     """
     Return True if the user may include pending data in analysis/Journal.
@@ -129,16 +117,107 @@ def can_include_pending_data(user) -> bool:
     return has_import and has_analyse
 
 
+def get_allowed_filiale_codes(user):
+    """
+    Return the list of filiale codes the given principal may read.
+
+    - External services: the codes assigned to their
+      ``ExternalServiceClient.allowed_filiales``. An empty set means NO
+      access (not unrestricted access), so ``[]`` is returned. Codes are
+      intersected with ``settings.FILIALE_DATABASES`` so only configured,
+      routable filiales are ever returned.
+    - Human users: the existing behaviour -- every configured filiale for
+      superusers / ``all_filiales`` users, otherwise just their own.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return []
+
+    if getattr(user, "is_external_service", False):
+        from django.conf import settings
+
+        from api.models import ExternalServiceClient
+
+        try:
+            client = ExternalServiceClient.objects.using("default").get(
+                id=user.service_client_id
+            )
+        except ExternalServiceClient.DoesNotExist:
+            return []
+        if not client.is_active:
+            return []
+        configured = set(getattr(settings, "FILIALE_DATABASES", {}).keys())
+        return [
+            f.code_filiale
+            for f in client.allowed_filiales.all()
+            if f.code_filiale in configured
+        ]
+
+    if can_access_all_filiales(user):
+        from django.conf import settings
+
+        return list(getattr(settings, "FILIALE_DATABASES", {}).keys())
+
+    profile = getattr(user, "profile", None)
+    if profile is None or profile.filiale is None:
+        return []
+    return [profile.filiale.code_filiale]
+
+
+class ExternalServiceDashboardPermission(permissions.BasePermission):
+    def __init__(self, *permission_required: str):
+        self.permission_required = permission_required
+
+    def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+
+        if not user or not user.is_authenticated:
+            return False
+
+        # External services: read-only access.
+        if getattr(user, "is_external_service", False):
+            return request.method == "GET"
+
+        # Existing human-user permission logic.
+        if user.is_superuser:
+            return True
+
+        profile = getattr(user, "profile", None)
+        if not profile:
+            return False
+
+        user_perms = profile.permissions or []
+        is_write = request.method in ("POST", "PUT", "PATCH", "DELETE")
+
+        for required in self.permission_required:
+            if required in user_perms:
+                return True
+
+            if is_write:
+                if f"{required}.write" in user_perms:
+                    return True
+            else:
+                if (
+                    f"{required}.read" in user_perms
+                    or f"{required}.write" in user_perms
+                ):
+                    return True
+
+        return False
+
+
 class HasPagePermission(permissions.BasePermission):
     def __init__(self, *permission_required: str):
         self.permission_required = permission_required
 
     def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
+        user = getattr(request, "user", None)
+        if not user or not getattr(user, "is_authenticated", False):
             return False
-        if request.user.is_superuser:
+        if getattr(user, "is_superuser", False):
             return True
-        profile = getattr(request.user, "profile", None)
+        if getattr(user, "is_external_service", False):
+            return request.method == "GET"
+        profile = getattr(user, "profile", None)
         if not profile:
             return False
         user_perms = profile.permissions or []
@@ -150,7 +229,10 @@ class HasPagePermission(permissions.BasePermission):
                 if f"{required}.write" in user_perms:
                     return True
             else:
-                if f"{required}.read" in user_perms or f"{required}.write" in user_perms:
+                if (
+                    f"{required}.read" in user_perms
+                    or f"{required}.write" in user_perms
+                ):
                     return True
         return False
 

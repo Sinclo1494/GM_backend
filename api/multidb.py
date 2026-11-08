@@ -142,7 +142,7 @@ CENTRAL_DB_MODELS = {
     "contenttypes.contenttype",
     "sessions.session",
     "api.userprofile",
-    "api.filiale",
+    "api.externalserviceclient",    "api.filiale",
     "api.entreprise",
     "api.division",
     "api.famille_structures",
@@ -233,14 +233,14 @@ class FailClosedDatabaseRouter:
             db = filiale_db_name(code)
             if db in settings.DATABASES:
                 return db
-            logger.warning(
+            logger.debug(
                 "Affiliate database '%s' for code '%s' is not registered in "
                 "settings.DATABASES; falling back to the central database.",
                 db,
                 code,
             )
         else:
-            logger.warning(
+            logger.debug(
                 "No affiliate database resolved for model '%s'; using the "
                 "central database.",
                 label,
@@ -300,9 +300,11 @@ class FailClosedDatabaseRouter:
         )
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
-        """
-        Migrations are applied explicitly per database via
-        backend/migrate_all_filiales.py (manage.py migrate --database=<db>).
-        Returning None lets Django's default --database handling decide.
-        """
+        if (
+            db != "default"
+            and app_label == "api"
+            and model_name is not None
+            and model_name.lower() == "externalserviceclient"
+        ):
+            return False
         return None

@@ -1,6 +1,7 @@
 import re
 
-from django.db.models import OuterRef, Q, Subquery
+from django.db.models import F, OuterRef, Q, Subquery, Value
+from django.db.models.functions import Concat
 from django.utils import timezone
 from rest_framework import filters
 from api.permissions import can_include_pending_data
@@ -167,32 +168,21 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
         num_serie = request.query_params.get("num_serie")
         immatriculation = request.query_params.get("immatriculation")
         code_sous_famille = request.query_params.get("code_sous_famille")
-        print("\n-------------------------------\n")
-        print("code_sous_famille",code_sous_famille)
         code_type_marque = request.query_params.get("code_type_marque")
-        print("code_type_marque",code_type_marque)
         libelle_sous_famille = request.query_params.get("libelle_sous_famille")
-        print("libelle_sous_famille",libelle_sous_famille)
         libelle_type_marque = request.query_params.get("libelle_type_marque")
-        print("libelle_type_marque",libelle_type_marque)
         code_filiale = request.query_params.get("code_filiale") or request.query_params.get("filiale")
-        print("code_filiale",code_filiale)
         libelle_filiale = request.query_params.get("libelle_filiale")
-        print("libelle_filiale",libelle_filiale)
         code_famille = request.query_params.get("code_famille")
-        print("code_famille",code_famille)
         libelle_famille = request.query_params.get("libelle_famille")
-        print("libelle_famille",libelle_famille)   
         code_categorie = request.query_params.get("code_categorie")
-        print("code_categorie",code_categorie)
         libelle_categorie = request.query_params.get("libelle_categorie")
-        print("libelle_categorie",libelle_categorie)
         code_marque = request.query_params.get("code_marque")
-        print("code_marque",code_marque)
         libelle_marque = request.query_params.get("libelle_marque")
-        print("libelle_marque",libelle_marque)
         est_bloque = request.query_params.get("est_bloque")
         status = request.query_params.get("status")
+        libelle_site = request.query_params.get("libelle_site")
+        code_site = request.query_params.get("code_site")
         date_acquisition = request.query_params.get("date_acquisition")
         date_modification = request.query_params.get("date_modification")
         created_at = request.query_params.get("created_at")
@@ -262,6 +252,37 @@ class GrandMaterielFilter(filters.BaseFilterBackend):
             queryset = queryset.filter(est_bloque=_bool_param(est_bloque))
         if status:
             queryset = queryset.filter(status=status.strip().upper())
+
+        # Annotate each materiel with its latest affectation site (code - libelle)
+        from api.models import Affectation_Materiel
+
+        latest_site = (
+            Affectation_Materiel.objects.filter(
+                code_materiel=OuterRef("code_materiel")
+            )
+            .order_by("-date_affectation")
+            .annotate(
+                site_label=Concat(
+                    F("code_site__code_site"),
+                    Value(" - "),
+                    F("code_site__libelle_site"),
+                )
+            )
+            .values("site_label")[:1]
+        )
+        queryset = queryset.annotate(libelle_site=Subquery(latest_site))
+
+        if libelle_site:
+            queryset = queryset.filter(
+                Q(libelle_site__icontains=libelle_site)
+            ).distinct()
+
+        if code_site:
+            queryset = queryset.filter(
+                code_materiel__in=Affectation_Materiel.objects.filter(
+                    code_site__code_site__icontains=code_site
+                ).values("code_materiel")
+            ).distinct()
         
         # Include pending Grand_Materiel records (status=PENDING) when requested by superuser
         include_pending = (

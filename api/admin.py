@@ -20,6 +20,7 @@ from .models import (
     Regularisation_Mois_GM2,
     Site,
     Journal,
+    ExternalServiceClient,
 )
 from import_export.admin import ImportExportModelAdmin
 from .resources import (
@@ -363,6 +364,20 @@ admin.site.register(Regularisation_GM, RegularisationGMAdmin)
 admin.site.register(Regularisation_Mois_GM2, RegularisationMoisGM2Admin)
 admin.site.register(Site, SiteAdmin)
 admin.site.register(Journal)
+class ExternalServiceClientAdmin(admin.ModelAdmin):
+    list_display = ("name", "client_id", "is_active", "expires_at", "last_used_at", "created_at", "updated_at")
+    search_fields = ("name", "client_id")
+    list_filter = ("is_active",)
+    readonly_fields = ("client_id", "client_secret_hash", "created_at", "updated_at", "last_used_at")
+    filter_horizontal = ("allowed_filiales",)
+    raw_id_fields = ("allowed_filiales",)
+    fieldsets = (
+        (None, {"fields": ("name", "client_id", "client_secret_hash", "is_active", "expires_at")}),
+        ("Filiales autorisées", {"fields": ("allowed_filiales",)}),
+        ("Traçabilité", {"fields": ("created_by", "created_at", "updated_at", "last_used_at")}),
+    )
+
+admin.site.register(ExternalServiceClient, ExternalServiceClientAdmin)
 from .models.notification import Notification
 
 admin.site.register(Notification)

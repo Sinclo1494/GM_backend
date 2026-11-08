@@ -38,4 +38,9 @@ CORS_ALLOWED_ORIGINS = [
 SESSION_COOKIE_SECURE = False
 CSRF_COOKIE_SECURE = False
 
-LOGGING["handlers"]["console"]["level"] = "DEBUG"
+LOGGING["handlers"]["console"]["level"] = "WARNING"
+LOGGING["loggers"]["django.server"] = {
+    "handlers": ["console"],
+    "level": "WARNING",
+    "propagate": False,
+}

@@ -34,6 +34,7 @@ class JournalModules:
     FAMILLE = "FAMILLE"
     CATEGORIE = "CATEGORIE"
     TYPE_ETAT = "TYPE_ETAT"
+    PARAMETRAGE = "PARAMETRAGE"
 
     CHOICES = [
         (MATERIEL, "Matériel"),
@@ -51,6 +52,7 @@ class JournalModules:
         (FAMILLE, "Famille"),
         (CATEGORIE, "Catégorie"),
         (TYPE_ETAT, "Type d'État"),
+        (PARAMETRAGE, "Paramétrage"),
     ]
 
 

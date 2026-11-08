@@ -52,6 +52,9 @@ from django.contrib.auth.password_validation import validate_password
 
 from django.utils import timezone
 
+from api.services.mgt_dashboard_service import MgtDashboardService
+from .multidb import filiale_db_name, affiliate_routing
+
 User = get_user_model()
 
 
@@ -205,8 +208,9 @@ from api.services.dashboard_v2_service import DashboardV2Service
 
 from .filters import GrandMaterielFilter, GrandMaterielOrderingFilter, MarqueMaterielFilter, TypeMarqueFilter, SousFamilleMaterielFilter, FamilleMaterielFilter, CategorieGMFilter, TypeAffectationFilter, TypeSituationFilter, TypeEtatMaterielFilter, SituationMaterielFilter, EntrepriseFilter, FilialeFilter, AffectationMaterielFilter, DivisionFilter, FamilleStructuresFilter, PointageFilter, PointageOrderingFilter, RegularisationGMFilter, RegularisationMoisGM2Filter, SiteFilter
 from . import serializers
+from .serializers import ExternalServiceClientSerializer, ExternalServiceClientWriteSerializer
+from .models import ExternalServiceClient, Filiale, UserProfile
 from .serializers import *
-from .multidb import affiliate_routing, filiale_db_name, get_current_filiale, set_current_filiale, clear_current_filiale
 class StandardResultsSetPagination(PageNumberPagination):
 
     page_size = 50
@@ -2884,7 +2888,7 @@ class ValidateTypeMarqueView(PagePermissionRequiredMixin, APIView):
 
     def post(self, request):
 
-        print("this seems okay")
+        pass
 
         # -----------------------------------------------------
 
@@ -3196,7 +3200,7 @@ class ValidateSousFamilleView(PagePermissionRequiredMixin, APIView):
 
     def post(self, request):
 
-        print("this seems okay")
+        pass
 
         # -----------------------------------------------------
 
@@ -5602,15 +5606,60 @@ class CurrentUserView(PagePermissionRequiredMixin, APIView):
         return Response(data)
 
 
-class UserViewSet(SearchableModelViewSet):
-
-    queryset = User.objects.all().order_by("username")
-
-    serializer_class = UserSerializer
-
-    search_fields = ["username", "first_name", "last_name", "email"]
-
+class ExternalServiceClientViewSet(JournalisedModelViewSet):
+    queryset = ExternalServiceClient.objects.all().order_by("-created_at")
     permission_required = "administration.users"
+    search_fields = ["name", "client_id"]
+    journal_module = JournalModules.PARAMETRAGE
+    journal_objet_type = "ExternalServiceClient"
+
+    def get_serializer_class(self):
+        if self.action in ["create", "update", "partial_update"]:
+            return ExternalServiceClientWriteSerializer
+        return ExternalServiceClientSerializer
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        secret = serializer.context.get("client_secret")
+        if secret:
+            setattr(self.request, "_client_secret_plain", secret)
+        super().perform_create(serializer)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        data = ExternalServiceClientSerializer(instance=serializer.instance, context={"request": request}).data
+        secret = getattr(request, "_client_secret_plain", None) or serializer.context.get("client_secret")
+        if secret:
+            data["client_secret"] = secret
+        return Response(data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        data = ExternalServiceClientSerializer(instance=instance, context={"request": request}).data
+        secret = serializer.context.get("client_secret")
+        if secret:
+            data["client_secret"] = secret
+        return Response(data)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+
+class UserViewSet(JournalisedModelViewSet):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    journal_module = JournalModules.UTILISATEUR
+    journal_objet_type = "User"
+    permission_required = "administration.users"
+    search_fields = ["username", "first_name", "last_name", "email"]
 
     def get_permissions(self):
 
@@ -5642,7 +5691,7 @@ class UserViewSet(SearchableModelViewSet):
             objet_id=user.pk,
             nouvelle_valeur=serialize_for_journal(user, UserSerializer),
             request=self.request,
-            description=f"CrÃÂ©ation de User",
+            description=f"Création de User",
         )
 
     def _apply_profile_filiale(self, user):
@@ -5736,7 +5785,7 @@ class UserViewSet(SearchableModelViewSet):
                 ancienne_valeur={"permissions": old_permissions},
                 nouvelle_valeur={"permissions": profile.permissions},
                 request=self.request,
-                description=f"Modification des droits d'accÃÂ¨s pour User",
+                description=f"Modification des droits d'accès pour User",
             )
 
         return Response(UserProfileSerializer(profile).data)
@@ -5838,7 +5887,7 @@ class UserViewSet(SearchableModelViewSet):
             return Response(
                 {
                     "new_password": [
-                        "Le nouveau mot de passe doit ÃÂªtre diffÃÂ©rent de l'ancien."
+                        "Le nouveau mot de passe doit être différent de l'ancien."
                     ]
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -5871,7 +5920,7 @@ class UserViewSet(SearchableModelViewSet):
 
         return Response(
             {
-                "detail": "Mot de passe modifiÃÂ© avec succÃÂ¨s."
+                "detail": "Mot de passe modifié avec succès."
             }
         )
 
@@ -5905,7 +5954,7 @@ class UserViewSet(SearchableModelViewSet):
 
         return Response(
             {
-                "message": "Mot de passe mis ÃÂ  jour."
+                "message": "Mot de passe mis à jour."
             }
         )
 
@@ -6847,4 +6896,96 @@ class NotificationViewSet(PagePermissionRequiredMixin, viewsets.ModelViewSet):
 
 
 
+
+
+from django.conf import settings
+from api.permissions import ExternalServiceDashboardPermission, can_access_filiale
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+
+class MgtDashboardDecadaireView(APIView):
+    permission_classes = [IsAuthenticated, ExternalServiceDashboardPermission]
+    def get(self, request):
+        user = request.user
+        filiale = request.query_params.get('filiale')
+        if getattr(user, 'is_external_service', False) and filiale and filiale != 'toutes':
+            if filiale not in settings.FILIALE_DATABASES or not can_access_filiale(user, filiale):
+                return Response({'error': 'Code filiale invalide ou non autorisé'}, status=400)
+        data = MgtDashboardService.get_decadaire_data(
+            user,
+            request.query_params.get('famille'),
+            request.query_params.get('site'),
+            filiale,
+            request.query_params.get('mmaa'),
+            request.query_params.get('decade'),
+            request.query_params.get('date_debut'),
+            request.query_params.get('date_fin'),
+            page=int(request.query_params.get('page') or 1),
+            page_size=int(request.query_params.get('page_size') or 100),
+        )
+        return Response(data)
+
+class MgtDashboardMensuelView(APIView):
+    permission_classes = [IsAuthenticated, ExternalServiceDashboardPermission]
+    def get(self, request):
+        user = request.user
+        filiale = request.query_params.get('filiale')
+        if getattr(user, 'is_external_service', False) and filiale and filiale != 'toutes':
+            if filiale not in settings.FILIALE_DATABASES or not can_access_filiale(user, filiale):
+                return Response({'error': 'Code filiale invalide ou non autorisé'}, status=400)
+        data = MgtDashboardService.get_mensuel_data(
+            user,
+            request.query_params.get('famille'),
+            request.query_params.get('site'),
+            filiale,
+            request.query_params.get('mmaa'),
+            request.query_params.get('date_debut'),
+            request.query_params.get('date_fin'),
+            page=int(request.query_params.get('page') or 1),
+            page_size=int(request.query_params.get('page_size') or 100),
+        )
+        return Response(data)
+
+
+class MgtDashboardDecadaireRecapView(APIView):
+    permission_classes = [IsAuthenticated, ExternalServiceDashboardPermission]
+    def get(self, request):
+        user = request.user
+        filiale = request.query_params.get('filiale')
+        if getattr(user, 'is_external_service', False) and filiale and filiale != 'toutes':
+            if filiale not in settings.FILIALE_DATABASES or not can_access_filiale(user, filiale):
+                return Response({'error': 'Code filiale invalide ou non autorisé'}, status=400)
+        data = MgtDashboardService.get_decadaire_recap_data(
+            user,
+            request.query_params.get('famille'),
+            request.query_params.get('site'),
+            filiale,
+            request.query_params.get('mmaa'),
+            request.query_params.get('decade'),
+            request.query_params.get('date_debut'),
+            request.query_params.get('date_fin'),
+        )
+        return Response(data)
+
+
+class MgtDashboardMensuelRecapView(APIView):
+    permission_classes = [IsAuthenticated, ExternalServiceDashboardPermission]
+    def get(self, request):
+        user = request.user
+        filiale = request.query_params.get('filiale')
+        if getattr(user, 'is_external_service', False) and filiale and filiale != 'toutes':
+            if filiale not in settings.FILIALE_DATABASES or not can_access_filiale(user, filiale):
+                return Response({'error': 'Code filiale invalide ou non autorisé'}, status=400)
+        data = MgtDashboardService.get_mensuel_recap_data(
+            user,
+            request.query_params.get('famille'),
+            request.query_params.get('site'),
+            filiale,
+            request.query_params.get('mmaa'),
+            request.query_params.get('date_debut'),
+            request.query_params.get('date_fin'),
+        )
+        return Response(data)
 
