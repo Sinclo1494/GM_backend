@@ -167,6 +167,9 @@ class ExternalServiceDashboardPermission(permissions.BasePermission):
     def __init__(self, *permission_required: str):
         self.permission_required = permission_required
 
+    def __call__(self):
+        return self
+
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
 

@@ -2,7 +2,15 @@ import os
 from pathlib import Path
 from datetime import timedelta
 
+from dotenv import load_dotenv
+
+# Ensure PostgreSQL/libpq client messages are decoded as UTF-8 on Windows
+# servers with non-UTF8 locales; without this, psycopg2 can raise
+# UnicodeDecodeError while surfacing the real connection error.
+os.environ.setdefault("PGCLIENTENCODING", "UTF8")
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
 if not SECRET_KEY:
@@ -68,6 +76,8 @@ DATABASES = {
         "CONN_MAX_AGE": 60,
         "OPTIONS": {
             "connect_timeout": 10,
+            "client_encoding": "UTF8",
+            "options": "-c client_encoding=UTF8 -c lc_messages=C",
         },
     }
 }
@@ -136,6 +146,8 @@ for _filiale_code, _filiale_db_name in FILIALE_DATABASES.items():
         "CONN_MAX_AGE": FILIALE_CONN_MAX_AGE,
         "OPTIONS": {
             "connect_timeout": 10,
+            "client_encoding": "UTF8",
+            "options": "-c client_encoding=UTF8 -c lc_messages=C",
         },
     }
 
