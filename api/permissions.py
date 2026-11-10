@@ -240,6 +240,44 @@ class HasPagePermission(permissions.BasePermission):
         return False
 
 
+class HasAllPagePermissions(permissions.BasePermission):
+    """
+    Requires ALL listed permissions to be satisfied (AND logic).
+    Use this when a page needs both a menu permission and a specific permission.
+    """
+    def __init__(self, *permission_required: str):
+        self.permission_required = permission_required
+
+    def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        if getattr(user, "is_superuser", False):
+            return True
+        if getattr(user, "is_external_service", False):
+            return request.method == "GET"
+        profile = getattr(user, "profile", None)
+        if not profile:
+            return False
+        user_perms = profile.permissions or []
+        is_write = request.method in ("POST", "PUT", "PATCH", "DELETE")
+        
+        # ALL permissions must be satisfied
+        for required in self.permission_required:
+            has_perm = False
+            if required in user_perms:
+                has_perm = True
+            elif is_write:
+                if f"{required}.write" in user_perms:
+                    has_perm = True
+            else:
+                if f"{required}.read" in user_perms or f"{required}.write" in user_perms:
+                    has_perm = True
+            if not has_perm:
+                return False
+        return True
+
+
 class PagePermissionRequiredMixin:
     permission_required = None
 
@@ -249,6 +287,32 @@ class PagePermissionRequiredMixin:
             if isinstance(perms, str):
                 perms = (perms,)
             return [HasPagePermission(*perms), permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated()]
+
+
+class PageAndMenuPermissionRequiredMixin:
+    """
+    Mixin that requires BOTH a menu permission AND a specific permission (AND logic).
+    Set `permission_required` to the specific permission and `menu_permission_required` to the menu permission.
+    """
+    permission_required = None
+    menu_permission_required = None
+
+    def get_permissions(self):
+        perms = []
+        if self.permission_required:
+            if isinstance(self.permission_required, str):
+                perms.append(self.permission_required)
+            else:
+                perms.extend(self.permission_required)
+        if self.menu_permission_required:
+            if isinstance(self.menu_permission_required, str):
+                perms.append(self.menu_permission_required)
+            else:
+                perms.extend(self.menu_permission_required)
+        
+        if perms:
+            return [HasAllPagePermissions(*perms), permissions.IsAuthenticated()]
         return [permissions.IsAuthenticated()]
 class CanModifyEntityWhilePending(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):

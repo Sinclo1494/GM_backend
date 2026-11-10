@@ -31,7 +31,16 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.filters import OrderingFilter
 
 
-from api.permissions import PagePermissionRequiredMixin, can_access_filiale, get_allowed_filiale_codes, resolve_filiale_code, can_access_all_filiales, can_include_pending_data
+from api.permissions import (
+    PagePermissionRequiredMixin,
+    PageAndMenuPermissionRequiredMixin,
+    HasAllPagePermissions,
+    can_access_filiale,
+    get_allowed_filiale_codes,
+    resolve_filiale_code,
+    can_access_all_filiales,
+    can_include_pending_data,
+)
 
 
 from django.conf import settings
@@ -427,7 +436,7 @@ class JournalisedModelViewSet(SearchableModelViewSet):
 
 
 class JournalViewSet(
-    PagePermissionRequiredMixin,
+    PageAndMenuPermissionRequiredMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
@@ -438,6 +447,7 @@ class JournalViewSet(
     serializer_class = JournalSerializer
 
     permission_required = "administration.journalisation"
+    menu_permission_required = "menu.administration"
 
     search_fields = ["description", "objet_type", "objet_id"]
 
@@ -1844,6 +1854,8 @@ class DashboardMaterialDetailsAPIView(PagePermissionRequiredMixin, APIView):
     def get(self, request):
 
         code_filiale = request.query_params.get("code_filiale")
+        if not code_filiale:
+            code_filiale = resolve_filiale_code(request.user, request)
 
         date_debut = request.query_params.get("date_debut")
 
@@ -4918,6 +4930,8 @@ class DashboardAPIView(PagePermissionRequiredMixin, APIView):
     def get(self, request):
 
         code_filiale = request.query_params.get("code_filiale")
+        if not code_filiale:
+            code_filiale = resolve_filiale_code(request.user, request)
 
         date_debut = request.query_params.get("date_debut")
 
@@ -4948,8 +4962,11 @@ class DashboardV2BaseAPIView(PagePermissionRequiredMixin, APIView):
     permission_required = ("analyse.dashboard",)
 
     def get_filters(self):
+        code_filiale = self.request.query_params.get("code_filiale")
+        if not code_filiale:
+            code_filiale = resolve_filiale_code(self.request.user, self.request)
         return {
-            "code_filiale": self.request.query_params.get("code_filiale"),
+            "code_filiale": code_filiale,
             "date_debut": self.request.query_params.get("date_debut"),
             "date_fin": self.request.query_params.get("date_fin"),
             "code_famille": self.request.query_params.get("code_famille"),
@@ -4960,6 +4977,8 @@ class DashboardV2BaseAPIView(PagePermissionRequiredMixin, APIView):
 
     def get_db_aliases(self):
         code_filiale = self.request.query_params.get("code_filiale")
+        if not code_filiale:
+            code_filiale = resolve_filiale_code(self.request.user, self.request)
         if code_filiale:
             return [filiale_db_name(code_filiale)]
         if can_access_all_filiales(self.request.user):
@@ -5609,9 +5628,13 @@ class CurrentUserView(PagePermissionRequiredMixin, APIView):
 class ExternalServiceClientViewSet(JournalisedModelViewSet):
     queryset = ExternalServiceClient.objects.all().order_by("-created_at")
     permission_required = "administration.users"
+    menu_permission_required = "menu.administration"
     search_fields = ["name", "client_id"]
     journal_module = JournalModules.PARAMETRAGE
     journal_objet_type = "ExternalServiceClient"
+
+    def get_permissions(self):
+        return [HasAllPagePermissions(self.permission_required, self.menu_permission_required), permissions.IsAuthenticated()]
 
     def get_serializer_class(self):
         if self.action in ["create", "update", "partial_update"]:
@@ -5659,6 +5682,7 @@ class UserViewSet(JournalisedModelViewSet):
     journal_module = JournalModules.UTILISATEUR
     journal_objet_type = "User"
     permission_required = "administration.users"
+    menu_permission_required = "menu.administration"
     search_fields = ["username", "first_name", "last_name", "email"]
 
     def get_permissions(self):
@@ -5667,7 +5691,7 @@ class UserViewSet(JournalisedModelViewSet):
 
             return [permissions.IsAuthenticated()]
 
-        return super().get_permissions()
+        return [HasAllPagePermissions(self.permission_required, self.menu_permission_required), permissions.IsAuthenticated()]
 
     def perform_create(self, serializer):
 
@@ -6035,9 +6059,10 @@ def notify_pending_import(request, result, module_name, batch_id=None, count=Non
         pass
 
 
-class PendingListView(PagePermissionRequiredMixin, APIView):
+class PendingListView(PageAndMenuPermissionRequiredMixin, APIView):
 
-    permission_required = "import.pointage"  # broad; adjust as needed
+    permission_required = "import.pointage"
+    menu_permission_required = "menu.imports"
 
     def get(self, request):
 
@@ -6233,9 +6258,10 @@ class PendingListView(PagePermissionRequiredMixin, APIView):
         return Response({"batches": batches_list})
 
 
-class ConfirmPendingView(PagePermissionRequiredMixin, APIView):
+class ConfirmPendingView(PageAndMenuPermissionRequiredMixin, APIView):
 
     permission_required = "import.pointage"
+    menu_permission_required = "menu.imports"
 
     def post(self, request):
 
@@ -6375,9 +6401,10 @@ class ConfirmPendingView(PagePermissionRequiredMixin, APIView):
 MAX_BULK_CONFIRM_ERRORS = 50
 
 
-class BulkConfirmPendingView(PagePermissionRequiredMixin, APIView):
+class BulkConfirmPendingView(PageAndMenuPermissionRequiredMixin, APIView):
 
     permission_required = "import.pointage"
+    menu_permission_required = "menu.imports"
 
     def post(self, request):
 
@@ -6564,9 +6591,10 @@ class BulkConfirmPendingView(PagePermissionRequiredMixin, APIView):
         return Response({"success": True, "updated": total_updated})
 
 
-class RejectPendingView(PagePermissionRequiredMixin, APIView):
+class RejectPendingView(PageAndMenuPermissionRequiredMixin, APIView):
 
     permission_required = "import.pointage"
+    menu_permission_required = "menu.imports"
 
     def post(self, request):
 
